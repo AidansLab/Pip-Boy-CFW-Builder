@@ -3,10 +3,13 @@ document.addEventListener('DOMContentLoaded', () => {
     const patchListDiv = document.getElementById('patch-list');
     const patchButton = document.getElementById('patch-button');
     const downloadLink = document.getElementById('download-link');
+    const writeSDButton = document.getElementById('write-sd-button');
 
     let baseFileContent = null;
     let selectedFileName = 'FW_patched.js'; // Default download name
     let patchScriptsLoaded = 0;
+    let generatedFirmware = null; // Store the generated firmware for SD card writing
+    let firmwareVersion = null; // Store the selected firmware version
     // Check if PATCH_MANIFEST exists and is defined before getting keys
     const totalPatches = (typeof PATCH_MANIFEST !== 'undefined' && PATCH_MANIFEST) ? Object.keys(PATCH_MANIFEST).length : 0;
 
@@ -184,6 +187,20 @@ document.addEventListener('DOMContentLoaded', () => {
             // Read as text using UTF-8 explicitly
             baseFileContent = await response.text();
             selectedFileName = selectedFile.replace('.js', '_patched.js'); // Update download name
+            
+            // Extract firmware version from the selected file
+            // Look for VERSION constant in the file content
+            const versionMatch = baseFileContent.match(/const\s+VERSION\s*=\s*["']([0-9.]+)["']/);
+            if (versionMatch && versionMatch[1]) {
+                firmwareVersion = versionMatch[1];
+                console.log(`Detected firmware version: ${firmwareVersion}`);
+            } else {
+                // Fallback: try to extract from filename (e.g., FW_1.29.js -> 1.29)
+                const fileVersionMatch = selectedFile.match(/FW_([0-9.]+)\.js/);
+                firmwareVersion = fileVersionMatch ? fileVersionMatch[1] : 'unknown';
+                console.log(`Using version from filename: ${firmwareVersion}`);
+            }
+            
             patchButton.disabled = false; // Re-enable button
             patchButton.textContent = 'Patch File';
             console.log(`${selectedFile} loaded successfully.`);
@@ -358,7 +375,10 @@ document.addEventListener('DOMContentLoaded', () => {
 
             console.log("Patching process complete.");
 
-            // --- 5. Create Download ---
+            // --- 5. Append epoch digits to VERSION ---
+            patchedContent = appendEpochToVersion(patchedContent);
+
+            // --- 6. Create Download ---
             createDownloadLink(patchedContent, selectedFileName);
 
 
@@ -435,8 +455,220 @@ document.addEventListener('DOMContentLoaded', () => {
         downloadLink.download = filename; // Use the provided filename
         downloadLink.style.display = 'block';
         console.log("Download link created.");
-        alert('File ready! Click the download link below.');
+        
+        // Store the generated firmware and enable the Write to SD button
+        generatedFirmware = finalContent;
+        writeSDButton.disabled = false;
+        writeSDButton.textContent = 'WRITE TO SD CARD';
+        
+        alert('File ready! Click the download link below or write to SD card.');
      }
+
+    // --- Function to append epoch digits to VERSION ---
+    function appendEpochToVersion(content) {
+        const epochLast3 = Math.floor(Date.now() / 1000) % 1000;
+        const versionRegex = /(const\s+VERSION\s*=\s*["'])([0-9.]+)(["'])/g;
+        
+        const updatedContent = content.replace(versionRegex, (match, prefix, version, suffix) => {
+            const newVersion = `${version}.${epochLast3}`;
+            console.log(`Updated VERSION from ${version} to ${newVersion}`);
+            return `${prefix}${newVersion}${suffix}`;
+        });
+        
+        return updatedContent;
+    }
+
+    // --- Write to SD Card Function ---
+    async function writeToSDCard() {
+        if (!generatedFirmware) {
+            alert('Please generate patched firmware first!');
+            return;
+        }
+
+        writeSDButton.disabled = true;
+        writeSDButton.textContent = 'CONNECTING...';
+
+        try {
+            // Check if Web Serial is available
+            if (!navigator.serial) {
+                throw new Error('Web Serial API not supported in this browser. Please use Chrome, Edge, or Opera.');
+            }
+
+            console.log('Requesting serial port...');
+            const port = await navigator.serial.requestPort({
+                filters: [{ usbVendorId: 0x0483 }] // STM32 vendor ID
+            });
+
+            console.log('Opening serial port...');
+            await port.open({ baudRate: 9600 });
+
+            writeSDButton.textContent = 'CONNECTED';
+
+            // Set up reader and writer
+            const textDecoder = new TextDecoderStream();
+            const readableStreamClosed = port.readable.pipeTo(textDecoder.writable);
+            const reader = textDecoder.readable.getReader();
+            
+            const textEncoder = new TextEncoderStream();
+            const writableStreamClosed = textEncoder.readable.pipeTo(port.writable);
+            const writer = textEncoder.writable.getWriter();
+
+            // Helper to write commands
+            async function writeCommand(cmd) {
+                await writer.write(cmd);
+                console.log('Sent:', cmd.replace(/\n/g, '\\n').replace(/\x10/g, '\\x10'));
+            }
+
+            // Helper to wait
+            function delay(ms) {
+                return new Promise(resolve => setTimeout(resolve, ms));
+            }
+
+            console.log('Resetting device...');
+            writeSDButton.textContent = 'RESETTING...';
+            await writeCommand('\x10reset()\n');
+            await delay(3000);
+
+            // Clear the screen and display status
+            console.log('Displaying status on Pip-Boy screen...');
+            writeSDButton.textContent = 'PREPARING...';
+            await writeCommand('\x10g.setFontMonofonto16().clearRect(0,173,478,319).setColor(0,0.8,0).setFontAlign(0,0);\n');
+            await delay(100);
+            await writeCommand('\x10g.drawString("Installing Custom Firmware...",240,220,true);\n');
+            await delay(100);
+
+            // Check if SD card is accessible and try to mount it
+            console.log('Checking SD card...');
+            writeSDButton.textContent = 'CHECKING SD...';
+            await writeCommand('\x10g.drawString("Checking SD card...",240,260,true);\n');
+            await delay(100);
+            
+            // Try to read Storage to ensure it's available
+            await writeCommand('\x10try{var l=require("Storage").list();g.drawString("SD Ready: "+l.length+" files",240,280,true);}catch(e){g.drawString("SD Error: "+e,240,280,true);}\n');
+            await delay(500);
+
+            // Erase old FW.js if it exists using fs.unlink
+            console.log('Erasing old FW.js if present...');
+            writeSDButton.textContent = 'ERASING OLD FW...';
+            await writeCommand('\x10g.drawString("Erasing old FW.js...",240,260,true);\n');
+            await delay(100);
+            await writeCommand('\x10try{require("fs").unlink("FW.js");}catch(e){}\n');
+            await delay(500);
+
+            // Write firmware to SD card as FW.js using E.openFile
+            console.log('Writing firmware to SD card...');
+            writeSDButton.textContent = 'WRITING FW.JS...';
+            await writeCommand('\x10g.drawString("Opening file for write...",240,260,true);\n');
+            await delay(100);
+            
+            // Open file for writing
+            await writeCommand('\x10var fw=E.openFile("FW.js","w");\n');
+            await delay(300);
+            
+            const CHUNK_SIZE = 512; // Smaller chunks for more reliable writing
+            const totalChunks = Math.ceil(generatedFirmware.length / CHUNK_SIZE);
+            
+            for (let i = 0; i < generatedFirmware.length; i += CHUNK_SIZE) {
+                const chunk = generatedFirmware.substr(i, CHUNK_SIZE);
+                const chunkNum = Math.floor(i / CHUNK_SIZE) + 1;
+                
+                // Update progress
+                writeSDButton.textContent = `WRITING ${chunkNum}/${totalChunks}`;
+                if (chunkNum % 10 === 1 || chunkNum === totalChunks) {
+                    // Update screen every 10 chunks to reduce overhead
+                    await writeCommand(`\x10g.drawString("Writing ${chunkNum}/${totalChunks}     ",240,260,true);\n`);
+                    await delay(50);
+                }
+                
+                // Write chunk using file handle with error handling
+                // Convert to base64 to safely transmit binary data
+                const cmd = `\x10try{fw.write(atob(${JSON.stringify(btoa(chunk))}));}catch(e){g.drawString("Err: "+e.message,240,280,true);}\n`;
+                await writeCommand(cmd);
+                
+                // Small delay between chunks
+                await delay(20);
+                
+                console.log(`Wrote chunk ${chunkNum}/${totalChunks}`);
+            }
+            
+            // Close the file
+            console.log('Closing file...');
+            writeSDButton.textContent = 'FINALIZING...';
+            await writeCommand('\x10g.drawString("Closing file...",240,260,true);\n');
+            await delay(100);
+            await writeCommand('\x10fw.close();\n');
+            await delay(500);
+
+            // Write VERSION file
+            console.log('Writing VERSION file...');
+            writeSDButton.textContent = 'WRITING VERSION...';
+            await writeCommand('\x10g.drawString("Writing VERSION file...",240,260,true);\n');
+            await delay(100);
+            
+            // Delete old VERSION file if it exists
+            await writeCommand('\x10try{require("fs").unlink("VERSION");}catch(e){}\n');
+            await delay(300);
+            
+            // Create version string with epoch suffix
+            const epochLast3 = Math.floor(Date.now() / 1000) % 1000;
+            const versionString = firmwareVersion ? `${firmwareVersion}.${epochLast3}` : `unknown.${epochLast3}`;
+            console.log(`Writing VERSION file with content: ${versionString}`);
+            
+            // Write VERSION file using E.openFile
+            await writeCommand('\x10var vf=E.openFile("VERSION","w");\n');
+            await delay(300);
+            await writeCommand(`\x10vf.write(${JSON.stringify(versionString)});\n`);
+            await delay(200);
+            await writeCommand('\x10vf.close();\n');
+            await delay(500);
+
+            console.log('Firmware written successfully!');
+            writeSDButton.textContent = 'COMPLETING...';
+            
+            // Display success message on Pip-Boy
+            await writeCommand('\x10g.clearRect(0,173,478,319);\n');
+            await delay(100);
+            await writeCommand('\x10g.drawString("Custom Firmware Installed!",240,220,true);\n');
+            await delay(100);
+            await writeCommand(`\x10g.drawString("Version: ${versionString}",240,240,true);\n`);
+            await delay(100);
+            await writeCommand('\x10g.drawString("Rebooting in 3 seconds...",240,260,true);\n');
+            await delay(3000);
+
+            // Reboot
+            await writeCommand('\x10E.reboot();\n');
+
+            // Clean up
+            reader.releaseLock();
+            writer.releaseLock();
+            await readableStreamClosed.catch(() => {});
+            await writableStreamClosed.catch(() => {});
+            await port.close();
+
+            writeSDButton.textContent = 'WRITE COMPLETE!';
+            alert('Custom firmware successfully written to SD card! The Pip-Boy will now reboot.');
+            
+            setTimeout(() => {
+                writeSDButton.textContent = 'WRITE TO SD CARD';
+                writeSDButton.disabled = false;
+            }, 3000);
+
+        } catch (error) {
+            console.error('Error writing to SD card:', error);
+            alert(`Failed to write to SD card:\n${error.message}`);
+            writeSDButton.textContent = 'WRITE FAILED';
+            setTimeout(() => {
+                writeSDButton.textContent = 'WRITE TO SD CARD';
+                writeSDButton.disabled = false;
+            }, 3000);
+        }
+    }
+
+    // Add event listener for Write to SD button
+    if (writeSDButton) {
+        writeSDButton.addEventListener('click', writeToSDCard);
+    }
+
     function applyReplacement(content, patchKey, regionName, replacementCode) {
         // Define all 4 marker styles
         const startMarkerSlashes = `//${patchKey}Begin_${regionName}`;
