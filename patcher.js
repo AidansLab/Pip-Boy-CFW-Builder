@@ -4,6 +4,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const patchButton = document.getElementById('patch-button');
     const downloadLink = document.getElementById('download-link');
     const writeSDButton = document.getElementById('write-sd-button');
+    const writeFlashButton = document.getElementById('write-flash-button');
 
     let baseFileContent = null;
     let selectedFileName = 'FW_patched.js'; // Default download name
@@ -456,12 +457,14 @@ document.addEventListener('DOMContentLoaded', () => {
         downloadLink.style.display = 'block';
         console.log("Download link created.");
         
-        // Store the generated firmware and enable the Write to SD button
+        // Store the generated firmware and enable the Write buttons
         generatedFirmware = finalContent;
         writeSDButton.disabled = false;
         writeSDButton.textContent = 'WRITE TO SD CARD';
+        writeFlashButton.disabled = false;
+        writeFlashButton.textContent = 'WRITE TO FLASH';
         
-        alert('File ready! Click the download link below or write to SD card.');
+        alert('File ready! Click the download link below, write to SD card, or write to flash.');
      }
 
     // --- Function to append epoch digits to VERSION ---
@@ -667,6 +670,154 @@ document.addEventListener('DOMContentLoaded', () => {
     // Add event listener for Write to SD button
     if (writeSDButton) {
         writeSDButton.addEventListener('click', writeToSDCard);
+    }
+
+    // --- Write to Flash Function ---
+    async function writeToFlash() {
+        if (!generatedFirmware) {
+            alert('Please generate patched firmware first!');
+            return;
+        }
+
+        writeFlashButton.disabled = true;
+        writeFlashButton.textContent = 'CONNECTING...';
+
+        try {
+            // Check if Web Serial is available
+            if (!navigator.serial) {
+                throw new Error('Web Serial API not supported in this browser. Please use Chrome, Edge, or Opera.');
+            }
+
+            console.log('Requesting serial port...');
+            const port = await navigator.serial.requestPort({
+                filters: [{ usbVendorId: 0x0483 }] // STM32 vendor ID
+            });
+
+            console.log('Opening serial port...');
+            await port.open({ baudRate: 9600 });
+
+            writeFlashButton.textContent = 'CONNECTED';
+
+            // Set up reader and writer
+            const textDecoder = new TextDecoderStream();
+            const readableStreamClosed = port.readable.pipeTo(textDecoder.writable);
+            const reader = textDecoder.readable.getReader();
+            
+            const textEncoder = new TextEncoderStream();
+            const writableStreamClosed = textEncoder.readable.pipeTo(port.writable);
+            const writer = textEncoder.writable.getWriter();
+
+            // Helper to write commands
+            async function writeCommand(cmd) {
+                await writer.write(cmd);
+                console.log('Sent:', cmd.replace(/\n/g, '\\n').replace(/\x10/g, '\\x10'));
+            }
+
+            // Helper to wait
+            function delay(ms) {
+                return new Promise(resolve => setTimeout(resolve, ms));
+            }
+
+            console.log('Resetting device...');
+            writeFlashButton.textContent = 'RESETTING...';
+            await writeCommand('\x10reset()\n');
+            await delay(3000);
+
+            // Clear the screen and display status
+            console.log('Displaying status on Pip-Boy screen...');
+            writeFlashButton.textContent = 'PREPARING...';
+            await writeCommand('\x10g.setFontMonofonto16().clearRect(0,173,478,319).setColor(0,0.8,0).setFontAlign(0,0);\n');
+            await delay(100);
+            await writeCommand('\x10g.drawString("Writing to Flash...",240,220,true);\n');
+            await delay(100);
+
+            // Erase old .bootcde if it exists
+            console.log('Erasing old .bootcde if present...');
+            writeFlashButton.textContent = 'ERASING OLD...';
+            await writeCommand('\x10g.drawString("Erasing old .bootcde...",240,260,true);\n');
+            await delay(100);
+            await writeCommand('\x10try{require("Storage").erase(".bootcde");}catch(e){}\n');
+            await delay(500);
+
+            // Write firmware to flash as .bootcde using Storage.write in chunks
+            console.log('Writing firmware to flash...');
+            writeFlashButton.textContent = 'WRITING TO FLASH...';
+            await writeCommand('\x10g.drawString("Writing to flash...",240,260,true);\n');
+            await delay(100);
+            
+            const CHUNK_SIZE = 1024;
+            const fileName = '.bootcde';
+            const totalChunks = Math.ceil(generatedFirmware.length / CHUNK_SIZE);
+            
+            for (let i = 0; i < generatedFirmware.length; i += CHUNK_SIZE) {
+                const chunk = generatedFirmware.substr(i, CHUNK_SIZE);
+                const chunkNum = Math.floor(i / CHUNK_SIZE) + 1;
+                const sizeParam = (i === 0) ? `,${generatedFirmware.length}` : '';
+                
+                // Update progress
+                writeFlashButton.textContent = `WRITING ${chunkNum}/${totalChunks}`;
+                if (chunkNum % 10 === 1 || chunkNum === totalChunks) {
+                    // Update screen every 10 chunks to reduce overhead
+                    await writeCommand(`\x10g.drawString("Writing ${chunkNum}/${totalChunks}     ",240,280,true);\n`);
+                    await delay(50);
+                }
+                
+                // Write chunk to Storage with error handling
+                const cmd = `\x10try{require("Storage").write(${JSON.stringify(fileName)},atob(${JSON.stringify(btoa(chunk))}),${i}${sizeParam});}catch(e){g.drawString("Error: "+e,240,300,true);}\n`;
+                await writeCommand(cmd);
+                
+                // Delay between chunks to avoid overwhelming the device
+                await delay(100);
+                
+                console.log(`Wrote chunk ${chunkNum}/${totalChunks} to flash`);
+            }
+
+            console.log('Firmware written to flash successfully!');
+            writeFlashButton.textContent = 'COMPLETING...';
+            
+            // Display success message on Pip-Boy
+            await writeCommand('\x10g.clearRect(0,173,478,319);\n');
+            await delay(100);
+            await writeCommand('\x10g.drawString("Flash Write Complete!",240,220,true);\n');
+            await delay(100);
+            await writeCommand('\x10g.drawString("Firmware in .bootcde",240,240,true);\n');
+            await delay(100);
+            await writeCommand('\x10g.drawString("Rebooting in 3 seconds...",240,260,true);\n');
+            await delay(3000);
+
+            // Reboot to load from flash
+            await writeCommand('\x10load()\n');
+            await delay(100);
+
+            // Clean up
+            reader.releaseLock();
+            writer.releaseLock();
+            await readableStreamClosed.catch(() => {});
+            await writableStreamClosed.catch(() => {});
+            await port.close();
+
+            writeFlashButton.textContent = 'WRITE COMPLETE!';
+            alert('Custom firmware successfully written to flash (.bootcde)! The Pip-Boy will now load it.');
+            
+            setTimeout(() => {
+                writeFlashButton.textContent = 'WRITE TO FLASH';
+                writeFlashButton.disabled = false;
+            }, 3000);
+
+        } catch (error) {
+            console.error('Error writing to flash:', error);
+            alert(`Failed to write to flash:\n${error.message}`);
+            writeFlashButton.textContent = 'WRITE FAILED';
+            setTimeout(() => {
+                writeFlashButton.textContent = 'WRITE TO FLASH';
+                writeFlashButton.disabled = false;
+            }, 3000);
+        }
+    }
+
+    // Add event listener for Write to Flash button
+    if (writeFlashButton) {
+        writeFlashButton.addEventListener('click', writeToFlash);
     }
 
     function applyReplacement(content, patchKey, regionName, replacementCode) {
