@@ -11,6 +11,7 @@ document.addEventListener('DOMContentLoaded', () => {
     let patchScriptsLoaded = 0;
     let generatedFirmware = null; // Store the generated firmware for SD card writing
     let firmwareVersion = null; // Store the selected firmware version
+    let activePort = null; // Track the currently open serial port
     // Check if PATCH_MANIFEST exists and is defined before getting keys
     const totalPatches = (typeof PATCH_MANIFEST !== 'undefined' && PATCH_MANIFEST) ? Object.keys(PATCH_MANIFEST).length : 0;
 
@@ -488,8 +489,21 @@ document.addEventListener('DOMContentLoaded', () => {
             return;
         }
 
+        // Close any open port first
+        if (activePort) {
+            try {
+                await activePort.close();
+                console.log('Closed previously open port');
+            } catch (e) {
+                console.log('Error closing previous port:', e);
+            }
+            activePort = null;
+        }
+
         writeSDButton.disabled = true;
         writeSDButton.textContent = 'CONNECTING...';
+
+        let port, reader, writer, readableStreamClosed, writableStreamClosed;
 
         try {
             // Check if Web Serial is available
@@ -498,23 +512,51 @@ document.addEventListener('DOMContentLoaded', () => {
             }
 
             console.log('Requesting serial port...');
-            const port = await navigator.serial.requestPort({
+            port = await navigator.serial.requestPort({
                 filters: [{ usbVendorId: 0x0483 }] // STM32 vendor ID
             });
 
             console.log('Opening serial port...');
+            // Check if this specific port is already open
+            if (port.readable || port.writable) {
+                console.log('Port appears to be already open, aborting streams first...');
+                try {
+                    // If port is open, we need to abort the streams before closing
+                    if (port.readable) {
+                        try {
+                            const tempReader = port.readable.getReader();
+                            tempReader.releaseLock();
+                        } catch (e) {}
+                        await port.readable.cancel().catch(() => {});
+                    }
+                    if (port.writable) {
+                        try {
+                            const tempWriter = port.writable.getWriter();
+                            tempWriter.releaseLock();
+                        } catch (e) {}
+                        await port.writable.abort().catch(() => {});
+                    }
+                    await port.close();
+                    console.log('Successfully closed previously open port');
+                    await new Promise(resolve => setTimeout(resolve, 500)); // Wait for port to fully close
+                } catch (e) {
+                    console.log('Error closing port:', e);
+                }
+            }
+            
             await port.open({ baudRate: 9600 });
+            activePort = port; // Track the open port
 
             writeSDButton.textContent = 'CONNECTED';
 
             // Set up reader and writer
             const textDecoder = new TextDecoderStream();
-            const readableStreamClosed = port.readable.pipeTo(textDecoder.writable);
-            const reader = textDecoder.readable.getReader();
+            readableStreamClosed = port.readable.pipeTo(textDecoder.writable);
+            reader = textDecoder.readable.getReader();
             
             const textEncoder = new TextEncoderStream();
-            const writableStreamClosed = textEncoder.readable.pipeTo(port.writable);
-            const writer = textEncoder.writable.getWriter();
+            writableStreamClosed = textEncoder.readable.pipeTo(port.writable);
+            writer = textEncoder.writable.getWriter();
 
             // Helper to write commands
             async function writeCommand(cmd) {
@@ -535,25 +577,25 @@ document.addEventListener('DOMContentLoaded', () => {
             // Clear the screen and display status
             console.log('Displaying status on Pip-Boy screen...');
             writeSDButton.textContent = 'PREPARING...';
-            await writeCommand('\x10g.setFontMonofonto16().clearRect(0,173,478,319).setColor(0,0.8,0).setFontAlign(0,0);\n');
+            await writeCommand('\x10g.clear();g.setFontMonofonto16().setColor(0,0.8,0).setFontAlign(0,0);\n');
             await delay(100);
-            await writeCommand('\x10g.drawString("Installing Custom Firmware...",240,220,true);\n');
+            await writeCommand('\x10g.drawString("Installing Custom Firmware...",240,160,true);\n');
             await delay(100);
 
             // Check if SD card is accessible and try to mount it
             console.log('Checking SD card...');
             writeSDButton.textContent = 'CHECKING SD...';
-            await writeCommand('\x10g.drawString("Checking SD card...",240,260,true);\n');
+            await writeCommand('\x10g.clearRect(0,140,478,319);g.drawString("Checking SD card...",240,160,true);\n');
             await delay(100);
             
             // Try to read Storage to ensure it's available
-            await writeCommand('\x10try{var l=require("Storage").list();g.drawString("SD Ready: "+l.length+" files",240,280,true);}catch(e){g.drawString("SD Error: "+e,240,280,true);}\n');
+            await writeCommand('\x10try{var l=require("Storage").list();g.drawString("SD Ready: "+l.length+" files",240,180,true);}catch(e){g.drawString("SD Error: "+e,240,180,true);}\n');
             await delay(500);
 
             // Erase old FW.js if it exists using fs.unlink
             console.log('Erasing old FW.js if present...');
             writeSDButton.textContent = 'ERASING OLD FW...';
-            await writeCommand('\x10g.drawString("Erasing old FW.js...",240,260,true);\n');
+            await writeCommand('\x10g.clearRect(0,140,478,319);g.drawString("Erasing old FW.js...",240,160,true);\n');
             await delay(100);
             await writeCommand('\x10try{require("fs").unlink("FW.js");}catch(e){}\n');
             await delay(500);
@@ -561,7 +603,7 @@ document.addEventListener('DOMContentLoaded', () => {
             // Write firmware to SD card as FW.js using E.openFile
             console.log('Writing firmware to SD card...');
             writeSDButton.textContent = 'WRITING FW.JS...';
-            await writeCommand('\x10g.drawString("Opening file for write...",240,260,true);\n');
+            await writeCommand('\x10g.clearRect(0,140,478,319);g.drawString("Opening file for write...",240,160,true);\n');
             await delay(100);
             
             // Open file for writing
@@ -579,7 +621,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 writeSDButton.textContent = `WRITING ${chunkNum}/${totalChunks}`;
                 if (chunkNum % 10 === 1 || chunkNum === totalChunks) {
                     // Update screen every 10 chunks to reduce overhead
-                    await writeCommand(`\x10g.drawString("Writing ${chunkNum}/${totalChunks}     ",240,260,true);\n`);
+                    await writeCommand(`\x10g.clearRect(0,140,478,319);g.drawString("Writing ${chunkNum}/${totalChunks}",240,160,true);\n`);
                     await delay(50);
                 }
                 
@@ -597,7 +639,7 @@ document.addEventListener('DOMContentLoaded', () => {
             // Close the file
             console.log('Closing file...');
             writeSDButton.textContent = 'FINALIZING...';
-            await writeCommand('\x10g.drawString("Closing file...",240,260,true);\n');
+            await writeCommand('\x10g.clearRect(0,140,478,319);g.drawString("Closing file...",240,160,true);\n');
             await delay(100);
             await writeCommand('\x10fw.close();\n');
             await delay(500);
@@ -605,7 +647,7 @@ document.addEventListener('DOMContentLoaded', () => {
             // Write VERSION file
             console.log('Writing VERSION file...');
             writeSDButton.textContent = 'WRITING VERSION...';
-            await writeCommand('\x10g.drawString("Writing VERSION file...",240,260,true);\n');
+            await writeCommand('\x10g.clearRect(0,140,478,319);g.drawString("Writing VERSION file...",240,160,true);\n');
             await delay(100);
             
             // Delete old VERSION file if it exists
@@ -629,24 +671,61 @@ document.addEventListener('DOMContentLoaded', () => {
             writeSDButton.textContent = 'COMPLETING...';
             
             // Display success message on Pip-Boy
-            await writeCommand('\x10g.clearRect(0,173,478,319);\n');
+            await writeCommand('\x10g.clear();\n');
             await delay(100);
-            await writeCommand('\x10g.drawString("Custom Firmware Installed!",240,220,true);\n');
+            await writeCommand('\x10g.drawString("Custom Firmware Installed!",240,140,true);\n');
             await delay(100);
-            await writeCommand(`\x10g.drawString("Version: ${versionString}",240,240,true);\n`);
+            await writeCommand(`\x10g.drawString("Version: ${versionString}",240,160,true);\n`);
             await delay(100);
-            await writeCommand('\x10g.drawString("Rebooting in 3 seconds...",240,260,true);\n');
+            await writeCommand('\x10g.drawString("Rebooting in 3 seconds...",240,180,true);\n');
             await delay(3000);
 
             // Reboot
             await writeCommand('\x10E.reboot();\n');
+            await delay(500); // Give device time to start rebooting
 
-            // Clean up
-            reader.releaseLock();
-            writer.releaseLock();
-            await readableStreamClosed.catch(() => {});
-            await writableStreamClosed.catch(() => {});
-            await port.close();
+            // Clean up - must release locks and cancel streams before closing port
+            try {
+                reader.releaseLock();
+            } catch (e) {
+                console.log('Error releasing reader lock:', e);
+            }
+            
+            try {
+                writer.releaseLock();
+            } catch (e) {
+                console.log('Error releasing writer lock:', e);
+            }
+            
+            // Cancel the piped streams
+            try {
+                await readableStreamClosed.catch(() => {});
+            } catch (e) {
+                console.log('Error closing readable stream:', e);
+            }
+            
+            try {
+                await writableStreamClosed.catch(() => {});
+            } catch (e) {
+                console.log('Error closing writable stream:', e);
+            }
+            
+            // Now cancel the port's streams directly before closing
+            try {
+                if (port.readable) await port.readable.cancel().catch(() => {});
+                if (port.writable) await port.writable.abort().catch(() => {});
+            } catch (e) {
+                console.log('Error cancelling port streams:', e);
+            }
+            
+            try {
+                await port.close();
+                console.log('Port closed successfully');
+            } catch (e) {
+                console.log('Error closing port:', e);
+            }
+            
+            activePort = null; // Clear the tracked port
 
             writeSDButton.textContent = 'WRITE COMPLETE!';
             alert('Custom firmware successfully written to SD card! The Pip-Boy will now reboot.');
@@ -660,6 +739,40 @@ document.addEventListener('DOMContentLoaded', () => {
             console.error('Error writing to SD card:', error);
             alert(`Failed to write to SD card:\n${error.message}`);
             writeSDButton.textContent = 'WRITE FAILED';
+            
+            // Try to close port and streams on error
+            try {
+                if (reader) reader.releaseLock();
+            } catch (e) {
+                console.log('Error releasing reader lock:', e);
+            }
+            
+            try {
+                if (writer) writer.releaseLock();
+            } catch (e) {
+                console.log('Error releasing writer lock:', e);
+            }
+            
+            try {
+                if (readableStreamClosed) await readableStreamClosed.catch(() => {});
+                if (writableStreamClosed) await writableStreamClosed.catch(() => {});
+            } catch (e) {
+                console.log('Error closing streams:', e);
+            }
+            
+            try {
+                if (port) {
+                    // Abort streams before closing port
+                    if (port.readable) await port.readable.cancel().catch(() => {});
+                    if (port.writable) await port.writable.abort().catch(() => {});
+                    await port.close();
+                }
+            } catch (e) {
+                console.log('Error closing port after failure:', e);
+            }
+            
+            activePort = null;
+            
             setTimeout(() => {
                 writeSDButton.textContent = 'WRITE TO SD CARD';
                 writeSDButton.disabled = false;
@@ -679,8 +792,21 @@ document.addEventListener('DOMContentLoaded', () => {
             return;
         }
 
+        // Close any open port first
+        if (activePort) {
+            try {
+                await activePort.close();
+                console.log('Closed previously open port');
+            } catch (e) {
+                console.log('Error closing previous port:', e);
+            }
+            activePort = null;
+        }
+
         writeFlashButton.disabled = true;
         writeFlashButton.textContent = 'CONNECTING...';
+
+        let port, reader, writer, readableStreamClosed, writableStreamClosed;
 
         try {
             // Check if Web Serial is available
@@ -689,23 +815,51 @@ document.addEventListener('DOMContentLoaded', () => {
             }
 
             console.log('Requesting serial port...');
-            const port = await navigator.serial.requestPort({
+            port = await navigator.serial.requestPort({
                 filters: [{ usbVendorId: 0x0483 }] // STM32 vendor ID
             });
 
             console.log('Opening serial port...');
+            // Check if this specific port is already open
+            if (port.readable || port.writable) {
+                console.log('Port appears to be already open, aborting streams first...');
+                try {
+                    // If port is open, we need to abort the streams before closing
+                    if (port.readable) {
+                        try {
+                            const tempReader = port.readable.getReader();
+                            tempReader.releaseLock();
+                        } catch (e) {}
+                        await port.readable.cancel().catch(() => {});
+                    }
+                    if (port.writable) {
+                        try {
+                            const tempWriter = port.writable.getWriter();
+                            tempWriter.releaseLock();
+                        } catch (e) {}
+                        await port.writable.abort().catch(() => {});
+                    }
+                    await port.close();
+                    console.log('Successfully closed previously open port');
+                    await new Promise(resolve => setTimeout(resolve, 500)); // Wait for port to fully close
+                } catch (e) {
+                    console.log('Error closing port:', e);
+                }
+            }
+            
             await port.open({ baudRate: 9600 });
+            activePort = port; // Track the open port
 
             writeFlashButton.textContent = 'CONNECTED';
 
             // Set up reader and writer
             const textDecoder = new TextDecoderStream();
-            const readableStreamClosed = port.readable.pipeTo(textDecoder.writable);
-            const reader = textDecoder.readable.getReader();
+            readableStreamClosed = port.readable.pipeTo(textDecoder.writable);
+            reader = textDecoder.readable.getReader();
             
             const textEncoder = new TextEncoderStream();
-            const writableStreamClosed = textEncoder.readable.pipeTo(port.writable);
-            const writer = textEncoder.writable.getWriter();
+            writableStreamClosed = textEncoder.readable.pipeTo(port.writable);
+            writer = textEncoder.writable.getWriter();
 
             // Helper to write commands
             async function writeCommand(cmd) {
@@ -726,15 +880,15 @@ document.addEventListener('DOMContentLoaded', () => {
             // Clear the screen and display status
             console.log('Displaying status on Pip-Boy screen...');
             writeFlashButton.textContent = 'PREPARING...';
-            await writeCommand('\x10g.setFontMonofonto16().clearRect(0,173,478,319).setColor(0,0.8,0).setFontAlign(0,0);\n');
+            await writeCommand('\x10g.clear();g.setFontMonofonto16().setColor(0,0.8,0).setFontAlign(0,0);\n');
             await delay(100);
-            await writeCommand('\x10g.drawString("Writing to Flash...",240,220,true);\n');
+            await writeCommand('\x10g.drawString("Writing to Flash...",240,160,true);\n');
             await delay(100);
 
             // Erase old .bootcde if it exists
             console.log('Erasing old .bootcde if present...');
             writeFlashButton.textContent = 'ERASING OLD...';
-            await writeCommand('\x10g.drawString("Erasing old .bootcde...",240,260,true);\n');
+            await writeCommand('\x10g.clearRect(0,140,478,319);g.drawString("Erasing old .bootcde...",240,160,true);\n');
             await delay(100);
             await writeCommand('\x10try{require("Storage").erase(".bootcde");}catch(e){}\n');
             await delay(500);
@@ -742,7 +896,6 @@ document.addEventListener('DOMContentLoaded', () => {
             // Write firmware to flash as .bootcde using Storage.write in chunks
             console.log('Writing firmware to flash...');
             writeFlashButton.textContent = 'WRITING TO FLASH...';
-            await writeCommand('\x10g.drawString("Writing to flash...",240,260,true);\n');
             await delay(100);
             
             const CHUNK_SIZE = 1024;
@@ -758,7 +911,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 writeFlashButton.textContent = `WRITING ${chunkNum}/${totalChunks}`;
                 if (chunkNum % 10 === 1 || chunkNum === totalChunks) {
                     // Update screen every 10 chunks to reduce overhead
-                    await writeCommand(`\x10g.drawString("Writing ${chunkNum}/${totalChunks}     ",240,280,true);\n`);
+                    await writeCommand(`\x10g.clearRect(0,140,478,319);g.drawString("Writing ${chunkNum}/${totalChunks}",240,160,true);\n`);
                     await delay(50);
                 }
                 
@@ -776,25 +929,59 @@ document.addEventListener('DOMContentLoaded', () => {
             writeFlashButton.textContent = 'COMPLETING...';
             
             // Display success message on Pip-Boy
-            await writeCommand('\x10g.clearRect(0,173,478,319);\n');
+            await writeCommand('\x10g.clear();\n');
             await delay(100);
-            await writeCommand('\x10g.drawString("Flash Write Complete!",240,220,true);\n');
+            await writeCommand('\x10g.drawString("Flash Write Complete!",240,140,true);\n');
             await delay(100);
-            await writeCommand('\x10g.drawString("Firmware in .bootcde",240,240,true);\n');
-            await delay(100);
-            await writeCommand('\x10g.drawString("Rebooting in 3 seconds...",240,260,true);\n');
+            await writeCommand('\x10g.drawString("Rebooting in 3 seconds...",240,160,true);\n');
             await delay(3000);
 
             // Reboot to load from flash
-            await writeCommand('\x10load()\n');
-            await delay(100);
+            await writeCommand('\x10E.reboot()\n');
+            await delay(500); // Give device time to start rebooting
 
-            // Clean up
-            reader.releaseLock();
-            writer.releaseLock();
-            await readableStreamClosed.catch(() => {});
-            await writableStreamClosed.catch(() => {});
-            await port.close();
+            // Clean up - must release locks and cancel streams before closing port
+            try {
+                reader.releaseLock();
+            } catch (e) {
+                console.log('Error releasing reader lock:', e);
+            }
+            
+            try {
+                writer.releaseLock();
+            } catch (e) {
+                console.log('Error releasing writer lock:', e);
+            }
+            
+            // Cancel the piped streams
+            try {
+                await readableStreamClosed.catch(() => {});
+            } catch (e) {
+                console.log('Error closing readable stream:', e);
+            }
+            
+            try {
+                await writableStreamClosed.catch(() => {});
+            } catch (e) {
+                console.log('Error closing writable stream:', e);
+            }
+            
+            // Now cancel the port's streams directly before closing
+            try {
+                if (port.readable) await port.readable.cancel().catch(() => {});
+                if (port.writable) await port.writable.abort().catch(() => {});
+            } catch (e) {
+                console.log('Error cancelling port streams:', e);
+            }
+            
+            try {
+                await port.close();
+                console.log('Port closed successfully');
+            } catch (e) {
+                console.log('Error closing port:', e);
+            }
+            
+            activePort = null; // Clear the tracked port
 
             writeFlashButton.textContent = 'WRITE COMPLETE!';
             alert('Custom firmware successfully written to flash (.bootcde)! The Pip-Boy will now load it.');
@@ -808,6 +995,40 @@ document.addEventListener('DOMContentLoaded', () => {
             console.error('Error writing to flash:', error);
             alert(`Failed to write to flash:\n${error.message}`);
             writeFlashButton.textContent = 'WRITE FAILED';
+            
+            // Try to close port and streams on error
+            try {
+                if (reader) reader.releaseLock();
+            } catch (e) {
+                console.log('Error releasing reader lock:', e);
+            }
+            
+            try {
+                if (writer) writer.releaseLock();
+            } catch (e) {
+                console.log('Error releasing writer lock:', e);
+            }
+            
+            try {
+                if (readableStreamClosed) await readableStreamClosed.catch(() => {});
+                if (writableStreamClosed) await writableStreamClosed.catch(() => {});
+            } catch (e) {
+                console.log('Error closing streams:', e);
+            }
+            
+            try {
+                if (port) {
+                    // Abort streams before closing port
+                    if (port.readable) await port.readable.cancel().catch(() => {});
+                    if (port.writable) await port.writable.abort().catch(() => {});
+                    await port.close();
+                }
+            } catch (e) {
+                console.log('Error closing port after failure:', e);
+            }
+            
+            activePort = null;
+            
             setTimeout(() => {
                 writeFlashButton.textContent = 'WRITE TO FLASH';
                 writeFlashButton.disabled = false;

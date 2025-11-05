@@ -31,7 +31,7 @@ const PATCH_MANIFEST = {
 	
 	"MaintenancePatch": {
         name: "Maintenance Features",
-        description: "Adds advanced maintenance features like RAM Scan and theme palette customization.",
+        description: "Adds advanced maintenance features like RAM Scan and theme palette customization (theme palette customization not yet implemented).",
         file: "Patches/MaintenancePatch.js"
     },
 	
