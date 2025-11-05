@@ -1041,6 +1041,136 @@ document.addEventListener('DOMContentLoaded', () => {
         writeFlashButton.addEventListener('click', writeToFlash);
     }
 
+    // --- Install from SD to Flash Function ---
+    async function installFromSD() {
+        const installButton = document.getElementById('install-from-sd-button');
+        
+        // Close any open port first
+        if (activePort) {
+            try {
+                await activePort.close();
+                console.log('Closed previously open port');
+            } catch (e) {
+                console.log('Error closing previous port:', e);
+            }
+            activePort = null;
+        }
+
+        installButton.disabled = true;
+        installButton.textContent = 'CONNECTING...';
+
+        let port, reader, writer, readableStreamClosed, writableStreamClosed;
+
+        try {
+            // Check if Web Serial is available
+            if (!navigator.serial) {
+                throw new Error('Web Serial API not supported in this browser. Please use Chrome, Edge, or Opera.');
+            }
+
+            console.log('Requesting serial port...');
+            port = await navigator.serial.requestPort({
+                filters: [{ usbVendorId: 0x0483 }] // STM32 vendor ID
+            });
+
+            console.log('Opening serial port...');
+            await port.open({ baudRate: 9600 });
+            activePort = port;
+
+            // Setup streams
+            const textDecoder = new TextDecoderStream();
+            readableStreamClosed = port.readable.pipeTo(textDecoder.writable);
+            reader = textDecoder.readable.getReader();
+
+            const textEncoder = new TextEncoderStream();
+            writableStreamClosed = textEncoder.readable.pipeTo(port.writable);
+            writer = textEncoder.writable.getWriter();
+
+            // Helper to write commands
+            const writeCommand = async (cmd) => {
+                await writer.write(cmd);
+                await new Promise(resolve => setTimeout(resolve, 100));
+            };
+
+            console.log('Triggering firmware update from SD card...');
+            installButton.textContent = 'CHECKING SD CARD...';
+
+            // Reset the device
+            await writeCommand('\x10reset();\n');
+            await new Promise(resolve => setTimeout(resolve, 2000));
+
+            // Clear the screen and show status
+            await writeCommand('\x10g.clear();g.drawString("Installing from SD...",240,160,true);\n');
+            await new Promise(resolve => setTimeout(resolve, 500));
+
+            // Force a VERSION mismatch by temporarily changing VERSION in RAM
+            // This will trigger the firmware update check on the next load()
+            await writeCommand('\x10VERSION="0.00.000";\n');
+            await new Promise(resolve => setTimeout(resolve, 200));
+
+            installButton.textContent = 'LOADING FIRMWARE...';
+
+            // Call load() which will check VERSION mismatch and install FW.js from SD
+            await writeCommand('\x10load();\n');
+            
+            console.log('Firmware installation triggered. Device will load from SD card.');
+            installButton.textContent = '✓ INSTALLATION TRIGGERED';
+
+            // Cleanup
+            reader.releaseLock();
+            writer.releaseLock();
+            await readableStreamClosed.catch(() => {});
+            await writableStreamClosed.catch(() => {});
+            
+            // Cancel the port's streams directly before closing
+            if (port.readable) await port.readable.cancel().catch(() => {});
+            if (port.writable) await port.writable.abort().catch(() => {});
+            await port.close();
+            activePort = null;
+            
+            console.log('Port closed successfully');
+
+            setTimeout(() => {
+                installButton.textContent = '█ INSTALL FROM SD TO FLASH █';
+                installButton.disabled = false;
+            }, 3000);
+
+        } catch (error) {
+            console.error('Error during SD installation:', error);
+            alert(`Failed to install from SD: ${error.message}`);
+            
+            // Cleanup on error
+            try {
+                if (reader) reader.releaseLock();
+            } catch (e) {}
+            try {
+                if (writer) writer.releaseLock();
+            } catch (e) {}
+            try {
+                if (readableStreamClosed) await readableStreamClosed.catch(() => {});
+            } catch (e) {}
+            try {
+                if (writableStreamClosed) await writableStreamClosed.catch(() => {});
+            } catch (e) {}
+            try {
+                if (port && port.readable) await port.readable.cancel().catch(() => {});
+                if (port && port.writable) await port.writable.abort().catch(() => {});
+                if (port) await port.close();
+            } catch (e) {}
+            activePort = null;
+
+            setTimeout(() => {
+                installButton.textContent = '█ INSTALL FROM SD TO FLASH █';
+                installButton.disabled = false;
+            }, 3000);
+        }
+    }
+
+    // Add event listener for Install from SD button
+    const installFromSDButton = document.getElementById('install-from-sd-button');
+    if (installFromSDButton) {
+        installFromSDButton.addEventListener('click', installFromSD);
+    }
+
     function applyReplacement(content, patchKey, regionName, replacementCode) {
         // Define all 4 marker styles
         const startMarkerSlashes = `//${patchKey}Begin_${regionName}`;
