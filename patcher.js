@@ -1,4 +1,4 @@
-document.addEventListener('DOMContentLoaded', () => {
+function initCFWBuilder() {
     const fwSelect = document.getElementById('fw-select');     // Select dropdown
     const patchListDiv = document.getElementById('patch-list');
     const patchButton = document.getElementById('patch-button');
@@ -125,6 +125,29 @@ document.addEventListener('DOMContentLoaded', () => {
         // Add checkbox and label
         itemDiv.appendChild(checkbox);
         itemDiv.appendChild(label);
+
+        // Toggle checkbox when clicking the row (excluding inputs/labels)
+        itemDiv.addEventListener('click', (event) => {
+            const target = event.target;
+
+            // Ignore direct clicks on the checkbox itself
+            if (target === checkbox) {
+                return;
+            }
+
+            // Allow label clicks to behave normally via the browser default
+            if (target.tagName === 'LABEL' && target.htmlFor === checkboxId) {
+                return;
+            }
+
+            // Do not toggle when interacting with text inputs (e.g. KPSS rename)
+            if (target.matches('input[type="text"]') || target.closest('input[type="text"]')) {
+                return;
+            }
+
+            checkbox.checked = !checkbox.checked;
+            checkbox.dispatchEvent(new Event('change', { bubbles: true }));
+        });
 
         // --- Handle Text Input ---
         if (patchInfo.inputType === 'text') {
@@ -1285,4 +1308,15 @@ document.addEventListener('DOMContentLoaded', () => {
         return string.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
     }
 
-}); // End DOMContentLoaded
+} // End initCFWBuilder
+
+if (window.__CFWBuilderInitialized) {
+    console.warn('CFW Builder already initialized; skipping duplicate execution.');
+} else {
+    window.__CFWBuilderInitialized = true;
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', initCFWBuilder);
+    } else {
+        initCFWBuilder();
+    }
+}
