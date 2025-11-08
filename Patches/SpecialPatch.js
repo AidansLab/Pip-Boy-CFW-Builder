@@ -435,8 +435,11 @@ let submenuSpecial = () =>
         `
     },
 
-    // 'replace' objects replace entire blocks
-    replace: {
-        
-    }
+    resources: [
+        {
+            localPath: 'resources/SPECIAL',
+            devicePath: 'USER_BOOT/PIP_UI_PLUS/SPECIAL',
+            description: 'SPECIAL videos'
+        }
+    ]
 };

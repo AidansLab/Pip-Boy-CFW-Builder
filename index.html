@@ -474,9 +474,15 @@
 
         <div id="patcher" class="tab-content active">
             <div class="step">
+                <h3>█ Step 0: Connect to Pip-Boy</h3>
+                <button id="connect-button">CONNECT TO PIP-BOY</button>
+                <p id="connection-status" style="margin-top: 10px; text-align: center;"></p>
+            </div>
+
+            <div class="step">
                 <h3>█ Step 1: Select Base FW Version</h3>
-                <select id="fw-select">
-                    <option value="">-- SELECT VERSION --</option>
+                <select id="fw-select" disabled>
+                    <option value="">-- CONNECT TO PIP-BOY FIRST --</option>
                 </select>
                 <p id="fw-loading-status" style="display: none;">LOADING FILE<span class="blink">█</span></p>
             </div>

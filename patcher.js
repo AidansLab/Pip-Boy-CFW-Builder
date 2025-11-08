@@ -1,35 +1,225 @@
-function initCFWBuilder() {
-    const fwSelect = document.getElementById('fw-select');     // Select dropdown
+document.addEventListener('DOMContentLoaded', () => {
+    const fwSelect = document.getElementById('fw-select');
     const patchListDiv = document.getElementById('patch-list');
     const patchButton = document.getElementById('patch-button');
     const downloadLink = document.getElementById('download-link');
     const writeSDButton = document.getElementById('write-sd-button');
     const writeFlashButton = document.getElementById('write-flash-button');
+    const connectButton = document.getElementById('connect-button');
+    const connectionStatus = document.getElementById('connection-status');
 
     let baseFileContent = null;
-    let selectedFileName = 'FW_patched.js'; // Default download name
+    let selectedFileName = 'FW_patched.js';
     let patchScriptsLoaded = 0;
-    let generatedFirmware = null; // Store the generated firmware for SD card writing
-    let firmwareVersion = null; // Store the selected firmware version
-    let activePort = null; // Track the currently open serial port
-    // Check if PATCH_MANIFEST exists and is defined before getting keys
+    let generatedFirmware = null;
+    let firmwareVersion = null;
+    let activePort = null;
+    let activeReader = null; // Keep persistent reader
+    let activeWriter = null; // Keep persistent writer
+    let pipboyVersion = null; // Store the Pip-Boy's current firmware version
+    let isConnected = false; // Track if we have an active connection
     const totalPatches = (typeof PATCH_MANIFEST !== 'undefined' && PATCH_MANIFEST) ? Object.keys(PATCH_MANIFEST).length : 0;
 
-    // --- 1. Populate FW Dropdown ---
-    // Check if FW_VERSIONS exists and is defined
+    // --- Connect to Pip-Boy ---
+    if (connectButton) {
+        connectButton.addEventListener('click', async () => {
+            // If already connected, disconnect
+            if (isConnected && activePort) {
+                try {
+                    await activePort.close();
+                    activePort = null;
+                    activeReader = null;
+                    activeWriter = null;
+                    isConnected = false;
+                    pipboyVersion = null;
+                    connectButton.textContent = 'CONNECT TO PIP-BOY';
+                    connectionStatus.textContent = 'DISCONNECTED';
+                    connectionStatus.style.color = '#ff8800';
+                    fwSelect.disabled = true;
+                    fwSelect.innerHTML = '<option value="">-- CONNECT TO PIP-BOY FIRST --</option>';
+                    console.log('Disconnected from Pip-Boy');
+                    return;
+                } catch (e) {
+                    console.log('Error disconnecting:', e);
+                }
+            }
+
+            connectButton.disabled = true;
+            connectButton.textContent = 'CONNECTING...';
+            connectionStatus.textContent = '';
+
+            try {
+                if (!navigator.serial) {
+                    throw new Error('Web Serial API not supported. Please use Chrome, Edge, or Opera.');
+                }
+
+                const port = await navigator.serial.requestPort({
+                    filters: [{ usbVendorId: 0x0483 }]
+                });
+
+                await port.open({ baudRate: 9600 });
+                activePort = port;
+
+                const textDecoder = new TextDecoderStream();
+                const readableStreamClosed = activePort.readable.pipeTo(textDecoder.writable);
+                activeReader = textDecoder.readable.getReader();
+
+                const textEncoder = new TextEncoderStream();
+                const writableStreamClosed = textEncoder.readable.pipeTo(activePort.writable);
+                activeWriter = textEncoder.writable.getWriter();
+
+                // Send reset and command to get VERSION
+                await activeWriter.write('\x10\n');
+                await new Promise(resolve => setTimeout(resolve, 100));
+                await activeWriter.write('process.env.VERSION\n');
+                await new Promise(resolve => setTimeout(resolve, 500));
+
+                // Read response with timeout
+                let response = '';
+                let timeoutId;
+                
+                const readWithTimeout = new Promise(async (resolve, reject) => {
+                    timeoutId = setTimeout(() => {
+                        reject(new Error('Timeout reading version from Pip-Boy'));
+                    }, 5000);
+
+                    try {
+                        while (true) {
+                            const { value, done } = await activeReader.read();
+                            if (done) break;
+                            response += value;
+                            console.log('Received:', value);
+                            
+                            // Look for the version pattern in response
+                            if (response.match(/["']?\d+v\d+/)) {
+                                clearTimeout(timeoutId);
+                                resolve(response);
+                                break;
+                            }
+                        }
+                    } catch (error) {
+                        clearTimeout(timeoutId);
+                        reject(error);
+                    }
+                });
+
+                response = await readWithTimeout;
+
+                // Extract version from response
+                const versionMatch = response.match(/["']?(\d+v\d+(?:\.\d+)?)["']?/);
+                if (versionMatch) {
+                    pipboyVersion = versionMatch[1];
+                    console.log(`Detected Pip-Boy version: ${pipboyVersion}`);
+                    connectionStatus.textContent = `CONNECTED - VERSION: ${pipboyVersion}`;
+                    connectionStatus.style.color = '#00ff41';
+                    connectButton.textContent = 'DISCONNECT';
+                    connectButton.disabled = false;
+                    isConnected = true;
+                    
+                    // Populate firmware dropdown based on version compatibility
+                    populateFirmwareDropdown();
+                } else {
+                    console.log('Full response:', response);
+                    throw new Error('Could not detect firmware version from Pip-Boy');
+                }
+
+                // Keep reader and writer active for future operations
+                // Don't release locks - we'll reuse them
+
+
+            } catch (error) {
+                console.error('Connection error:', error);
+                connectionStatus.textContent = `ERROR: ${error.message}`;
+                connectionStatus.style.color = '#ff4444';
+                connectButton.textContent = 'CONNECT TO PIP-BOY';
+                connectButton.disabled = false;
+                
+                // Clean up on error
+                if (activePort) {
+                    try {
+                        await activePort.close();
+                    } catch (e) {
+                        console.log('Error closing port:', e);
+                    }
+                }
+                activePort = null;
+                isConnected = false;
+            }
+        });
+    }
+
+    // Helper function to compare firmware versions
+    function compareVersions(v1, v2) {
+        // Parse versions like "2v20" or "2v20.48"
+        const parse = (v) => {
+            const match = v.match(/(\d+)v(\d+)(?:\.(\d+))?/);
+            if (!match) return [0, 0, 0];
+            return [
+                parseInt(match[1]) || 0,
+                parseInt(match[2]) || 0,
+                parseInt(match[3]) || 0
+            ];
+        };
+
+        const [maj1, min1, patch1] = parse(v1);
+        const [maj2, min2, patch2] = parse(v2);
+
+        if (maj1 !== maj2) return maj1 - maj2;
+        if (min1 !== min2) return min1 - min2;
+        return patch1 - patch2;
+    }
+
+    // Populate firmware dropdown based on Pip-Boy version
+    function populateFirmwareDropdown() {
+        fwSelect.innerHTML = '';
+        fwSelect.disabled = false;
+
+        const defaultOption = document.createElement('option');
+        defaultOption.value = '';
+        defaultOption.textContent = '-- SELECT VERSION --';
+        fwSelect.appendChild(defaultOption);
+
+        if (!pipboyVersion) {
+            fwSelect.disabled = true;
+            return;
+        }
+
+        let hasCompatibleFirmware = false;
+
+        for (const versionKey in FW_VERSIONS) {
+            const versionInfo = FW_VERSIONS[versionKey];
+            const requiredVersion = versionInfo.espversion;
+
+            // Check if Pip-Boy version meets requirement
+            const isCompatible = compareVersions(pipboyVersion, requiredVersion) >= 0;
+
+            if (isCompatible) {
+                hasCompatibleFirmware = true;
+                const option = document.createElement('option');
+                option.value = "Firmware/" + versionInfo.file;
+                option.textContent = versionInfo.name || `Version ${versionKey}`;
+                fwSelect.appendChild(option);
+                console.log(`Version of Pip-Boy is ${pipboyVersion}, which is above or equal to ${requiredVersion} required by ${versionInfo.name}.`);
+            } else {
+                console.log(`Skipping ${versionInfo.name}: requires ${requiredVersion}, but Pip-Boy has ${pipboyVersion}`);
+            }
+        }
+
+        if (!hasCompatibleFirmware) {
+            const errorOption = document.createElement('option');
+            errorOption.value = '';
+            errorOption.textContent = `No compatible firmware (Pip-Boy: ${pipboyVersion})`;
+            fwSelect.appendChild(errorOption);
+            fwSelect.disabled = true;
+        }
+    }
+
+    // --- 1. Initial FW Dropdown State ---
     if (typeof FW_VERSIONS === 'undefined' || !FW_VERSIONS || Object.keys(FW_VERSIONS).length === 0) {
         console.error("FW_VERSIONS manifest not found, is undefined, or is empty.");
         fwSelect.innerHTML = '<option value="">Error loading versions</option>';
         fwSelect.disabled = true;
-        patchButton.disabled = true; // Disable patch button if FW versions fail
-    } else {
-        for (const versionKey in FW_VERSIONS) {
-            const versionInfo = FW_VERSIONS[versionKey];
-            const option = document.createElement('option');
-            option.value = "Firmware/" + versionInfo.file; // Use filename as value for fetching
-            option.textContent = versionInfo.name || `Version ${versionKey}`;
-            fwSelect.appendChild(option);
-        }
+        patchButton.disabled = true;
     }
 
     // --- 2. Patch Loading and UI Population ---
@@ -512,78 +702,20 @@ function initCFWBuilder() {
             return;
         }
 
-        // Close any open port first
-        if (activePort) {
-            try {
-                await activePort.close();
-                console.log('Closed previously open port');
-            } catch (e) {
-                console.log('Error closing previous port:', e);
-            }
-            activePort = null;
+        if (!isConnected || !activePort) {
+            alert('Please connect to Pip-Boy first using the Connect button!');
+            return;
         }
 
         writeSDButton.disabled = true;
-        writeSDButton.textContent = 'CONNECTING...';
-
-        let port, reader, writer, readableStreamClosed, writableStreamClosed;
+        writeSDButton.textContent = 'PREPARING...';
 
         try {
-            // Check if Web Serial is available
-            if (!navigator.serial) {
-                throw new Error('Web Serial API not supported in this browser. Please use Chrome, Edge, or Opera.');
-            }
+            console.log('Using existing connection to Pip-Boy...');
 
-            console.log('Requesting serial port...');
-            port = await navigator.serial.requestPort({
-                filters: [{ usbVendorId: 0x0483 }] // STM32 vendor ID
-            });
-
-            console.log('Opening serial port...');
-            // Check if this specific port is already open
-            if (port.readable || port.writable) {
-                console.log('Port appears to be already open, aborting streams first...');
-                try {
-                    // If port is open, we need to abort the streams before closing
-                    if (port.readable) {
-                        try {
-                            const tempReader = port.readable.getReader();
-                            tempReader.releaseLock();
-                        } catch (e) {}
-                        await port.readable.cancel().catch(() => {});
-                    }
-                    if (port.writable) {
-                        try {
-                            const tempWriter = port.writable.getWriter();
-                            tempWriter.releaseLock();
-                        } catch (e) {}
-                        await port.writable.abort().catch(() => {});
-                    }
-                    await port.close();
-                    console.log('Successfully closed previously open port');
-                    await new Promise(resolve => setTimeout(resolve, 500)); // Wait for port to fully close
-                } catch (e) {
-                    console.log('Error closing port:', e);
-                }
-            }
-            
-            await port.open({ baudRate: 9600 });
-            activePort = port; // Track the open port
-
-            writeSDButton.textContent = 'CONNECTED';
-
-            // Set up reader and writer
-            const textDecoder = new TextDecoderStream();
-            readableStreamClosed = port.readable.pipeTo(textDecoder.writable);
-            reader = textDecoder.readable.getReader();
-            
-            const textEncoder = new TextEncoderStream();
-            writableStreamClosed = textEncoder.readable.pipeTo(port.writable);
-            writer = textEncoder.writable.getWriter();
-
-            // Helper to write commands
+            // Helper to write commands using the persistent writer
             async function writeCommand(cmd) {
-                await writer.write(cmd);
+                await activeWriter.write(cmd);
                 console.log('Sent:', cmd.replace(/\n/g, '\\n').replace(/\x10/g, '\\x10'));
             }
 
@@ -707,51 +839,19 @@ function initCFWBuilder() {
             await writeCommand('\x10E.reboot();\n');
             await delay(500); // Give device time to start rebooting
 
-            // Clean up - must release locks and cancel streams before closing port
-            try {
-                reader.releaseLock();
-            } catch (e) {
-                console.log('Error releasing reader lock:', e);
-            }
-            
-            try {
-                writer.releaseLock();
-            } catch (e) {
-                console.log('Error releasing writer lock:', e);
-            }
-            
-            // Cancel the piped streams
-            try {
-                await readableStreamClosed.catch(() => {});
-            } catch (e) {
-                console.log('Error closing readable stream:', e);
-            }
-            
-            try {
-                await writableStreamClosed.catch(() => {});
-            } catch (e) {
-                console.log('Error closing writable stream:', e);
-            }
-            
-            // Now cancel the port's streams directly before closing
-            try {
-                if (port.readable) await port.readable.cancel().catch(() => {});
-                if (port.writable) await port.writable.abort().catch(() => {});
-            } catch (e) {
-                console.log('Error cancelling port streams:', e);
-            }
-            
-            try {
-                await port.close();
-                console.log('Port closed successfully');
-            } catch (e) {
-                console.log('Error closing port:', e);
-            }
-            
-            activePort = null; // Clear the tracked port
+            // Mark as disconnected since device rebooted
+            isConnected = false;
+            activePort = null;
+            activeReader = null;
+            activeWriter = null;
+            connectionStatus.textContent = 'DISCONNECTED (DEVICE REBOOTED)';
+            connectionStatus.style.color = '#ff8800';
+            connectButton.textContent = 'CONNECT TO PIP-BOY';
+            fwSelect.disabled = true;
+            fwSelect.innerHTML = '<option value="">-- CONNECT TO PIP-BOY FIRST --</option>';
 
             writeSDButton.textContent = 'WRITE COMPLETE!';
-            alert('Custom firmware successfully written to SD card! The Pip-Boy will now reboot.');
+            alert('Custom firmware successfully written to SD card! The Pip-Boy has rebooted.\n\nPlease reconnect to perform additional operations.');
             
             setTimeout(() => {
                 writeSDButton.textContent = 'WRITE TO SD CARD';
@@ -762,39 +862,6 @@ function initCFWBuilder() {
             console.error('Error writing to SD card:', error);
             alert(`Failed to write to SD card:\n${error.message}`);
             writeSDButton.textContent = 'WRITE FAILED';
-            
-            // Try to close port and streams on error
-            try {
-                if (reader) reader.releaseLock();
-            } catch (e) {
-                console.log('Error releasing reader lock:', e);
-            }
-            
-            try {
-                if (writer) writer.releaseLock();
-            } catch (e) {
-                console.log('Error releasing writer lock:', e);
-            }
-            
-            try {
-                if (readableStreamClosed) await readableStreamClosed.catch(() => {});
-                if (writableStreamClosed) await writableStreamClosed.catch(() => {});
-            } catch (e) {
-                console.log('Error closing streams:', e);
-            }
-            
-            try {
-                if (port) {
-                    // Abort streams before closing port
-                    if (port.readable) await port.readable.cancel().catch(() => {});
-                    if (port.writable) await port.writable.abort().catch(() => {});
-                    await port.close();
-                }
-            } catch (e) {
-                console.log('Error closing port after failure:', e);
-            }
-            
-            activePort = null;
             
             setTimeout(() => {
                 writeSDButton.textContent = 'WRITE TO SD CARD';
@@ -815,78 +882,20 @@ function initCFWBuilder() {
             return;
         }
 
-        // Close any open port first
-        if (activePort) {
-            try {
-                await activePort.close();
-                console.log('Closed previously open port');
-            } catch (e) {
-                console.log('Error closing previous port:', e);
-            }
-            activePort = null;
+        if (!isConnected || !activePort) {
+            alert('Please connect to Pip-Boy first using the Connect button!');
+            return;
         }
 
         writeFlashButton.disabled = true;
-        writeFlashButton.textContent = 'CONNECTING...';
-
-        let port, reader, writer, readableStreamClosed, writableStreamClosed;
+        writeFlashButton.textContent = 'PREPARING...';
 
         try {
-            // Check if Web Serial is available
-            if (!navigator.serial) {
-                throw new Error('Web Serial API not supported in this browser. Please use Chrome, Edge, or Opera.');
-            }
+            console.log('Using existing connection to Pip-Boy...');
 
-            console.log('Requesting serial port...');
-            port = await navigator.serial.requestPort({
-                filters: [{ usbVendorId: 0x0483 }] // STM32 vendor ID
-            });
-
-            console.log('Opening serial port...');
-            // Check if this specific port is already open
-            if (port.readable || port.writable) {
-                console.log('Port appears to be already open, aborting streams first...');
-                try {
-                    // If port is open, we need to abort the streams before closing
-                    if (port.readable) {
-                        try {
-                            const tempReader = port.readable.getReader();
-                            tempReader.releaseLock();
-                        } catch (e) {}
-                        await port.readable.cancel().catch(() => {});
-                    }
-                    if (port.writable) {
-                        try {
-                            const tempWriter = port.writable.getWriter();
-                            tempWriter.releaseLock();
-                        } catch (e) {}
-                        await port.writable.abort().catch(() => {});
-                    }
-                    await port.close();
-                    console.log('Successfully closed previously open port');
-                    await new Promise(resolve => setTimeout(resolve, 500)); // Wait for port to fully close
-                } catch (e) {
-                    console.log('Error closing port:', e);
-                }
-            }
-            
-            await port.open({ baudRate: 9600 });
-            activePort = port; // Track the open port
-
-            writeFlashButton.textContent = 'CONNECTED';
-
-            // Set up reader and writer
-            const textDecoder = new TextDecoderStream();
-            readableStreamClosed = port.readable.pipeTo(textDecoder.writable);
-            reader = textDecoder.readable.getReader();
-            
-            const textEncoder = new TextEncoderStream();
-            writableStreamClosed = textEncoder.readable.pipeTo(port.writable);
-            writer = textEncoder.writable.getWriter();
-
-            // Helper to write commands
+            // Helper to write commands using the persistent writer
             async function writeCommand(cmd) {
-                await writer.write(cmd);
+                await activeWriter.write(cmd);
                 console.log('Sent:', cmd.replace(/\n/g, '\\n').replace(/\x10/g, '\\x10'));
             }
 
@@ -963,51 +972,19 @@ function initCFWBuilder() {
             await writeCommand('\x10E.reboot()\n');
             await delay(500); // Give device time to start rebooting
 
-            // Clean up - must release locks and cancel streams before closing port
-            try {
-                reader.releaseLock();
-            } catch (e) {
-                console.log('Error releasing reader lock:', e);
-            }
-            
-            try {
-                writer.releaseLock();
-            } catch (e) {
-                console.log('Error releasing writer lock:', e);
-            }
-            
-            // Cancel the piped streams
-            try {
-                await readableStreamClosed.catch(() => {});
-            } catch (e) {
-                console.log('Error closing readable stream:', e);
-            }
-            
-            try {
-                await writableStreamClosed.catch(() => {});
-            } catch (e) {
-                console.log('Error closing writable stream:', e);
-            }
-            
-            // Now cancel the port's streams directly before closing
-            try {
-                if (port.readable) await port.readable.cancel().catch(() => {});
-                if (port.writable) await port.writable.abort().catch(() => {});
-            } catch (e) {
-                console.log('Error cancelling port streams:', e);
-            }
-            
-            try {
-                await port.close();
-                console.log('Port closed successfully');
-            } catch (e) {
-                console.log('Error closing port:', e);
-            }
-            
-            activePort = null; // Clear the tracked port
+            // Mark as disconnected since device rebooted
+            isConnected = false;
+            activePort = null;
+            activeReader = null;
+            activeWriter = null;
+            connectionStatus.textContent = 'DISCONNECTED (DEVICE REBOOTED)';
+            connectionStatus.style.color = '#ff8800';
+            connectButton.textContent = 'CONNECT TO PIP-BOY';
+            fwSelect.disabled = true;
+            fwSelect.innerHTML = '<option value="">-- CONNECT TO PIP-BOY FIRST --</option>';
 
             writeFlashButton.textContent = 'WRITE COMPLETE!';
-            alert('Custom firmware successfully written to flash (.bootcde)! The Pip-Boy will now load it.');
+            alert('Custom firmware successfully written to flash (.bootcde)! The Pip-Boy has rebooted.\n\nPlease reconnect to perform additional operations.');
             
             setTimeout(() => {
                 writeFlashButton.textContent = 'WRITE TO FLASH';
@@ -1018,39 +995,6 @@ function initCFWBuilder() {
             console.error('Error writing to flash:', error);
             alert(`Failed to write to flash:\n${error.message}`);
             writeFlashButton.textContent = 'WRITE FAILED';
-            
-            // Try to close port and streams on error
-            try {
-                if (reader) reader.releaseLock();
-            } catch (e) {
-                console.log('Error releasing reader lock:', e);
-            }
-            
-            try {
-                if (writer) writer.releaseLock();
-            } catch (e) {
-                console.log('Error releasing writer lock:', e);
-            }
-            
-            try {
-                if (readableStreamClosed) await readableStreamClosed.catch(() => {});
-                if (writableStreamClosed) await writableStreamClosed.catch(() => {});
-            } catch (e) {
-                console.log('Error closing streams:', e);
-            }
-            
-            try {
-                if (port) {
-                    // Abort streams before closing port
-                    if (port.readable) await port.readable.cancel().catch(() => {});
-                    if (port.writable) await port.writable.abort().catch(() => {});
-                    await port.close();
-                }
-            } catch (e) {
-                console.log('Error closing port after failure:', e);
-            }
-            
-            activePort = null;
             
             setTimeout(() => {
                 writeFlashButton.textContent = 'WRITE TO FLASH';
@@ -1068,49 +1012,20 @@ function initCFWBuilder() {
     async function installFromSD() {
         const installButton = document.getElementById('install-from-sd-button');
         
-        // Close any open port first
-        if (activePort) {
-            try {
-                await activePort.close();
-                console.log('Closed previously open port');
-            } catch (e) {
-                console.log('Error closing previous port:', e);
-            }
-            activePort = null;
+        if (!isConnected || !activePort) {
+            alert('Please connect to Pip-Boy first using the Connect button!');
+            return;
         }
 
         installButton.disabled = true;
-        installButton.textContent = 'CONNECTING...';
-
-        let port, reader, writer, readableStreamClosed, writableStreamClosed;
+        installButton.textContent = 'PREPARING...';
 
         try {
-            // Check if Web Serial is available
-            if (!navigator.serial) {
-                throw new Error('Web Serial API not supported in this browser. Please use Chrome, Edge, or Opera.');
-            }
+            console.log('Using existing connection to Pip-Boy...');
 
-            console.log('Requesting serial port...');
-            port = await navigator.serial.requestPort({
-                filters: [{ usbVendorId: 0x0483 }] // STM32 vendor ID
-            });
-
-            console.log('Opening serial port...');
-            await port.open({ baudRate: 9600 });
-            activePort = port;
-
-            // Setup streams
-            const textDecoder = new TextDecoderStream();
-            readableStreamClosed = port.readable.pipeTo(textDecoder.writable);
-            reader = textDecoder.readable.getReader();
-
-            const textEncoder = new TextEncoderStream();
-            writableStreamClosed = textEncoder.readable.pipeTo(port.writable);
-            writer = textEncoder.writable.getWriter();
-
-            // Helper to write commands
+            // Helper to write commands using the persistent writer
             const writeCommand = async (cmd) => {
-                await writer.write(cmd);
+                await activeWriter.write(cmd);
                 await new Promise(resolve => setTimeout(resolve, 100));
             };
 
@@ -1138,49 +1053,27 @@ function initCFWBuilder() {
             console.log('Firmware installation triggered. Device will load from SD card.');
             installButton.textContent = '✓ INSTALLATION TRIGGERED';
 
-            // Cleanup
-            reader.releaseLock();
-            writer.releaseLock();
-            await readableStreamClosed.catch(() => {});
-            await writableStreamClosed.catch(() => {});
-            
-            // Cancel the port's streams directly before closing
-            if (port.readable) await port.readable.cancel().catch(() => {});
-            if (port.writable) await port.writable.abort().catch(() => {});
-            await port.close();
+            // Mark as disconnected since device will reboot during load()
+            isConnected = false;
             activePort = null;
-            
-            console.log('Port closed successfully');
+            activeReader = null;
+            activeWriter = null;
+            connectionStatus.textContent = 'DISCONNECTED (DEVICE REBOOTED)';
+            connectionStatus.style.color = '#ff8800';
+            connectButton.textContent = 'CONNECT TO PIP-BOY';
+            fwSelect.disabled = true;
+            fwSelect.innerHTML = '<option value="">-- CONNECT TO PIP-BOY FIRST --</option>';
 
             setTimeout(() => {
                 installButton.textContent = '█ INSTALL FROM SD TO FLASH █';
                 installButton.disabled = false;
+                alert('Installation triggered! The device is rebooting.\n\nPlease reconnect to perform additional operations.');
             }, 3000);
 
         } catch (error) {
             console.error('Error during SD installation:', error);
             alert(`Failed to install from SD: ${error.message}`);
             
-            // Cleanup on error
-            try {
-                if (reader) reader.releaseLock();
-            } catch (e) {}
-            try {
-                if (writer) writer.releaseLock();
-            } catch (e) {}
-            try {
-                if (readableStreamClosed) await readableStreamClosed.catch(() => {});
-            } catch (e) {}
-            try {
-                if (writableStreamClosed) await writableStreamClosed.catch(() => {});
-            } catch (e) {}
-            try {
-                if (port && port.readable) await port.readable.cancel().catch(() => {});
-                if (port && port.writable) await port.writable.abort().catch(() => {});
-                if (port) await port.close();
-            } catch (e) {}
-            activePort = null;
-
             setTimeout(() => {
                 installButton.textContent = '█ INSTALL FROM SD TO FLASH █';
                 installButton.disabled = false;
@@ -1308,15 +1201,4 @@ function initCFWBuilder() {
         return string.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
     }
 
-} // End initCFWBuilder
-
-if (window.__CFWBuilderInitialized) {
-    console.warn('CFW Builder already initialized; skipping duplicate execution.');
-} else {
-    window.__CFWBuilderInitialized = true;
-    if (document.readyState === 'loading') {
-        document.addEventListener('DOMContentLoaded', initCFWBuilder);
-    } else {
-        initCFWBuilder();
-    }
-}
+}); // End DOMContentLoaded

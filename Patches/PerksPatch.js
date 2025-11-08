@@ -551,5 +551,13 @@ let submenuPerks = () =>
     // 'replace' objects replace entire blocks
     replace: {
         
-    }
+    },
+
+	resources: [
+        {
+            localPath: 'resources/PERKS',
+            devicePath: 'USER_BOOT/PIP_UI_PLUS/PERKS',
+            description: 'PERKS videos'
+        }
+    ]
 };
