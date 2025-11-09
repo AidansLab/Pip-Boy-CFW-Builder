@@ -695,6 +695,195 @@ document.addEventListener('DOMContentLoaded', () => {
         return updatedContent;
     }
 
+    // --- Helper to read response from device ---
+    async function readDeviceResponse(timeoutMs = 2000) {
+        let response = '';
+        const startTime = Date.now();
+        
+        try {
+            while (Date.now() - startTime < timeoutMs) {
+                const { value, done } = await Promise.race([
+                    activeReader.read(),
+                    new Promise((_, reject) => 
+                        setTimeout(() => reject(new Error('timeout')), 500)
+                    )
+                ]);
+                
+                if (done) break;
+                if (value) {
+                    response += value;
+                    // If we got a complete response (ends with newline or prompt), return it
+                    if (response.includes('\n>') || response.includes('\r\n>')) {
+                        break;
+                    }
+                }
+            }
+        } catch (e) {
+            // Timeout or error reading
+        }
+        
+        return response;
+    }
+
+    // --- Helper to drain/clear the read buffer ---
+    async function drainReadBuffer(timeoutMs = 1000) {
+        const startTime = Date.now();
+        let drained = '';
+        
+        try {
+            while (Date.now() - startTime < timeoutMs) {
+                const { value, done } = await Promise.race([
+                    activeReader.read(),
+                    new Promise((_, reject) => 
+                        setTimeout(() => reject(new Error('timeout')), 100)
+                    )
+                ]);
+                
+                if (done) break;
+                if (value) {
+                    drained += value;
+                }
+            }
+        } catch (e) {
+            // Timeout - buffer is drained
+        }
+        
+        if (drained) {
+            console.log('Drained buffer:', drained);
+        }
+    }
+
+    // --- Upload Resources Function ---
+    async function uploadResources(writeCommand, delay) {
+        // Get list of enabled patches that have resources
+        const enabledPatches = [];
+        document.querySelectorAll('#patch-list .patch-item').forEach(item => {
+            const checkbox = item.querySelector('input[type="checkbox"]');
+            if (checkbox && checkbox.checked) {
+                const patchKey = checkbox.dataset.patchKey;
+                const patchInfo = PATCH_MANIFEST[patchKey];
+                if (patchInfo && patchInfo.resources) {
+                    enabledPatches.push({ key: patchKey, ...patchInfo });
+                }
+            }
+        });
+
+        if (enabledPatches.length === 0) {
+            console.log('No enabled patches require resources.');
+            return;
+        }
+
+        console.log(`Found ${enabledPatches.length} patch(es) with resources to upload.`);
+
+        for (const patch of enabledPatches) {
+            console.log(`Processing resources for ${patch.name}...`);
+            const { sourceFolder, targetPath, files } = patch.resources;
+
+            // Ensure target directory structure exists
+            const pathParts = targetPath.split('/');
+            for (let i = 0; i < pathParts.length; i++) {
+                const partialPath = pathParts.slice(0, i + 1).join('/');
+                // Try to create directory - won't error if it exists
+                await writeCommand(`\x10try{require('fs').mkdir(${JSON.stringify(partialPath)});}catch(e){}\n`);
+                await delay(100);
+            }
+
+            // Check what files already exist in the target directory
+            console.log(`Checking existing files in ${targetPath}...`);
+            
+            await writeCommand(`\x10print(JSON.stringify(require('fs').readdir(${JSON.stringify(targetPath)}) || []));\n`);
+            await delay(500);
+            
+            const readdirResponse = await readDeviceResponse(2000);
+            console.log('Directory listing response:', readdirResponse);
+            
+            let existingFiles = [];
+            try {
+                // Try to parse the JSON array from the response
+                const match = readdirResponse.match(/\[.*\]/);
+                if (match) {
+                    existingFiles = JSON.parse(match[0]);
+                    console.log(`Found ${existingFiles.length} existing files:`, existingFiles);
+                }
+            } catch (e) {
+                console.log('Could not parse existing files, will not upload anything.');
+                return;
+            }
+
+            // Filter out files that already exist
+            const filesToUpload = files.filter(fileName => !existingFiles.includes(fileName));
+            
+            if (filesToUpload.length === 0) {
+                console.log(`All files already exist for ${patch.name}, skipping upload.`);
+                continue;
+            }
+            
+            console.log(`Uploading ${filesToUpload.length} new file(s) to ${targetPath}...`);
+            console.log(`Skipping ${files.length - filesToUpload.length} existing file(s).`);
+            
+            for (let fileIndex = 0; fileIndex < filesToUpload.length; fileIndex++) {
+                const fileName = filesToUpload[fileIndex];
+                const filePath = `${sourceFolder}/${fileName}`;
+                
+                // Update progress on screen every few files
+                if (fileIndex % 5 === 0) {
+                    await writeCommand(`\x10g.clearRect(0,180,478,200);g.drawString("Uploading ${fileIndex + 1}/${filesToUpload.length}: ${fileName}",240,190,true);\n`);
+                    await delay(50);
+                }
+                
+                // Fetch the file from the local resources folder
+                try {
+                    const response = await fetch(filePath);
+                    if (!response.ok) {
+                        console.warn(`Could not fetch ${filePath}, skipping...`);
+                        continue;
+                    }
+                    
+                    const arrayBuffer = await response.arrayBuffer();
+                    const bytes = new Uint8Array(arrayBuffer);
+                    const targetFile = `${targetPath}/${fileName}`;
+                    
+                    console.log(`Uploading ${fileName} (${bytes.length} bytes)...`);
+                    
+                    // Open file for writing on SD card using fs
+                    await writeCommand(`\x10var f=E.openFile(${JSON.stringify(targetFile)},"w");\n`);
+                    await delay(100);
+                    
+                    // Write file in chunks
+                    const chunkSize = 512;
+                    const totalChunks = Math.ceil(bytes.length / chunkSize);
+                    
+                    for (let i = 0; i < bytes.length; i += chunkSize) {
+                        const chunk = bytes.slice(i, Math.min(i + chunkSize, bytes.length));
+                        
+                        // Convert chunk to string for transmission
+                        let chunkString = '';
+                        chunk.forEach(byte => chunkString += String.fromCharCode(byte));
+                        
+                        const cmd = `\x10f.write(${JSON.stringify(chunkString)});\n`;
+                        
+                        await writeCommand(cmd);
+                        await delay(30);
+                    }
+                    
+                    // Close the file
+                    await writeCommand('\x10f.close();\n');
+                    await delay(100);
+                    
+                    console.log(`✓ Uploaded ${fileName}`);
+                    
+                } catch (error) {
+                    console.error(`Error uploading ${fileName}:`, error);
+                }
+            }
+            
+            console.log(`✓ Completed resources for ${patch.name}`);
+        }
+        
+        console.log('All resource uploads complete.');
+        return;
+    }
+
     // --- Write to SD Card Function ---
     async function writeToSDCard() {
         if (!generatedFirmware) {
@@ -716,7 +905,7 @@ document.addEventListener('DOMContentLoaded', () => {
             // Helper to write commands using the persistent writer
             async function writeCommand(cmd) {
                 await activeWriter.write(cmd);
-                console.log('Sent:', cmd.replace(/\n/g, '\\n').replace(/\x10/g, '\\x10'));
+                //console.log('Sent:', cmd.replace(/\n/g, '\\n').replace(/\x10/g, '\\x10'));
             }
 
             // Helper to wait
@@ -824,6 +1013,17 @@ document.addEventListener('DOMContentLoaded', () => {
 
             console.log('Firmware written successfully!');
             writeSDButton.textContent = 'COMPLETING...';
+
+            await drainReadBuffer(300);
+            
+            // Upload resources for enabled patches
+            writeSDButton.textContent = 'UPLOADING RESOURCES...';
+            await writeCommand('\x10g.clear();\n');
+            await delay(100);
+            await writeCommand('\x10g.drawString("Uploading Resources...",240,160,true);\n');
+            await delay(100);
+            
+            await uploadResources(writeCommand, delay);
             
             // Display success message on Pip-Boy
             await writeCommand('\x10g.clear();\n');
@@ -896,7 +1096,7 @@ document.addEventListener('DOMContentLoaded', () => {
             // Helper to write commands using the persistent writer
             async function writeCommand(cmd) {
                 await activeWriter.write(cmd);
-                console.log('Sent:', cmd.replace(/\n/g, '\\n').replace(/\x10/g, '\\x10'));
+                //console.log('Sent:', cmd.replace(/\n/g, '\\n').replace(/\x10/g, '\\x10'));
             }
 
             // Helper to wait
@@ -959,6 +1159,17 @@ document.addEventListener('DOMContentLoaded', () => {
 
             console.log('Firmware written to flash successfully!');
             writeFlashButton.textContent = 'COMPLETING...';
+
+            await drainReadBuffer(300);
+            
+            // Upload resources for enabled patches
+            writeFlashButton.textContent = 'UPLOADING RESOURCES...';
+            await writeCommand('\x10g.clear();\n');
+            await delay(100);
+            await writeCommand('\x10g.drawString("Uploading Resources...",240,160,true);\n');
+            await delay(100);
+            
+            await uploadResources(writeCommand, delay);
             
             // Display success message on Pip-Boy
             await writeCommand('\x10g.clear();\n');

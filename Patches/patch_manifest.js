@@ -20,13 +20,45 @@ const PATCH_MANIFEST = {
     "PerksPatch": {
         name: "Perks System",
         description: "Adds the perks system.",
-        file: "Patches/PerksPatch.js"
+        file: "Patches/PerksPatch.js",
+        resources: {
+            sourceFolder: "resources/PERKS",
+            targetPath: "USER_BOOT/PIP_UI_PLUS/PERKS",
+            files: [
+                "_enabled_perks.dat", "_perks.dat", "action_boy.avi", "action_girl.avi", "adamantium_skeleton.avi", "animal_friend.avi",
+                "aquaboy.avi", "aquagirl.avi", "armorer.avi", "attack_dog.avi", "awareness.avi",
+                "basher.avi", "better_criticals.avi", "big_leagues.avi", "blacksmith.avi",
+                "black_widow.avi", "blitz.avi", "bloody_mess.avi", "cannibal.avi", "cap_collector.avi",
+                "chemist.avi", "chem_resistant.avi", "commando.avi", "concentrated_fire.avi",
+                "critical_banker.avi", "demolition_expert.avi", "fortune_finder.avi",
+                "four_leaf_clover.avi", "ghoulish.avi", "grim_reapers_sprint.avi", "gunslinger.avi",
+                "gun_fu.avi", "gun_nut.avi", "hacker.avi", "heavy_gunner.avi", "idiot_savant.avi",
+                "inspirational.avi", "intimidation.avi", "iron_fist.avi", "lady_killer.avi",
+                "lead_belly.avi", "life_giver.avi", "local_leader.avi", "locksmith.avi",
+                "lone_wanderer.avi", "medic.avi", "mister_sandman.avi", "moving_target.avi",
+                "mysterious_stranger.avi", "nerd_rage.avi", "night_person.avi", "ninja.avi",
+                "nuclear_physicist.avi", "pain_train.avi", "party_boy.avi", "party_girl.avi",
+                "penetrator.avi", "pickpocket.avi", "quick_hands.avi", "rad_resistant.avi",
+                "refractor.avi", "ricochet.avi", "rifleman.avi", "robotics_expert.avi", "rooted.avi",
+                "science.avi", "scrapper.avi", "scrounger.avi", "sneak.avi", "sniper.avi",
+                "solar_powered.avi", "steady_aim.avi", "strong_back.avi", "toughness.avi", "vans.avi",
+                "wasteland_whisperer.avi"
+            ]
+        }
     },
 	
 	"SpecialPatch": {
         name: "SPECIAL System",
         description: "Adds the SPECIAL system.",
-        file: "Patches/SpecialPatch.js"
+        file: "Patches/SpecialPatch.js",
+        resources: {
+            sourceFolder: "resources/SPECIAL",
+            targetPath: "USER_BOOT/PIP_UI_PLUS/SPECIAL",
+            files: [
+                "agility.avi", "charisma.avi", "endurance.avi", "intelligence.avi",
+                "luck.avi", "perception.avi", "strength.avi", "_special.dat"
+            ]
+        }
     },
 	
 	"MaintenancePatch": {
