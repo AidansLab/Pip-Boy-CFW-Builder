@@ -1,0 +1,5 @@
+# This tells Jekyll to include these files in the build
+include:
+  - _enabled_perks.dat
+  - _perks.dat
+  - _special.dat
