@@ -1,4 +1,21 @@
 document.addEventListener('DOMContentLoaded', () => {
+    // Initialize Espruino Core modules that are needed
+    if (!Espruino.Core.Notifications) {
+        Espruino.Core.Notifications = {
+            success: function(e) { console.log('✓', e); },
+            error: function(e) { console.error('✗', e); },
+            warning: function(e) { console.warn('⚠', e); },
+            info: function(e) { console.log('ℹ', e); }
+        };
+    }
+    if (!Espruino.Core.Status) {
+        Espruino.Core.Status = {
+            setStatus: function(e, len) { console.log('Status:', e); },
+            hasProgress: function() { return false; },
+            incrementProgress: function(amt) {}
+        };
+    }
+
     const fwSelect = document.getElementById('fw-select');
     const patchListDiv = document.getElementById('patch-list');
     const patchButton = document.getElementById('patch-button');
@@ -14,22 +31,117 @@ document.addEventListener('DOMContentLoaded', () => {
     let generatedFirmware = null;
     let firmwareVersion = null;
     let activePort = null;
-    let activeReader = null; // Keep persistent reader
-    let activeWriter = null; // Keep persistent writer
+    let serialDataBuffer = ''; // Buffer for incoming serial data
     let pipboyVersion = null; // Store the Pip-Boy's current firmware version
     let isConnected = false; // Track if we have an active connection
     const totalPatches = (typeof PATCH_MANIFEST !== 'undefined' && PATCH_MANIFEST) ? Object.keys(PATCH_MANIFEST).length : 0;
 
     // --- Connect to Pip-Boy ---
     if (connectButton) {
-        connectButton.addEventListener('click', async () => {
+        connectButton.addEventListener('click', () => {
             // If already connected, disconnect
             if (isConnected && activePort) {
-                try {
-                    await activePort.close();
+                Espruino.Core.Serial.close();
+                activePort = null;
+                isConnected = false;
+                pipboyVersion = null;
+                connectButton.textContent = 'CONNECT TO PIP-BOY';
+                connectionStatus.textContent = 'DISCONNECTED';
+                connectionStatus.style.color = '#ff8800';
+                fwSelect.disabled = true;
+                fwSelect.innerHTML = '<option value="">-- CONNECT TO PIP-BOY FIRST --</option>';
+                console.log('Disconnected from Pip-Boy');
+                return;
+            }
+
+            connectButton.disabled = true;
+            connectButton.textContent = 'CONNECTING...';
+            connectionStatus.textContent = 'Searching for ports...';
+
+            // Set up data listener for any custom serial communication we might need
+            Espruino.Core.Serial.startListening(function(data) {
+                // Receive data callback - data is an ArrayBuffer
+                const uint8Array = new Uint8Array(data);
+                let str = '';
+                for (let i = 0; i < uint8Array.length; i++) {
+                    str += String.fromCharCode(uint8Array[i]);
+                }
+                serialDataBuffer += str;
+                console.log('Received:', str);
+            });
+
+            // Get available ports
+            Espruino.Core.Serial.getPorts(function(ports) {
+                if (!ports || ports.length === 0) {
+                    connectionStatus.textContent = 'ERROR: No ports found';
+                    connectionStatus.style.color = '#ff4444';
+                    connectButton.textContent = 'CONNECT TO PIP-BOY';
+                    connectButton.disabled = false;
+                    return;
+                }
+
+                // Filter for STM32 device (vendor ID 0x0483) or just use first port
+                const stm32Port = ports.find(p => p.usb && p.usb[0] === 0x0483);
+                const selectedPort = stm32Port || ports[0];
+
+                console.log(`Connecting to: ${selectedPort.path}`);
+                connectionStatus.textContent = 'Opening port...';
+
+                // Open the serial port using Espruino's infrastructure
+                Espruino.Core.Serial.open(selectedPort.path, function(cInfo) {
+                    // Connect callback
+                    if (cInfo !== undefined && cInfo.error === undefined) {
+                        console.log("Device connected:", JSON.stringify(cInfo));
+                        activePort = selectedPort.path;
+                        isConnected = true;
+                        
+                        // Get version from Espruino's environment data
+                        // The env.js processor will have already queried and parsed process.env
+                        setTimeout(() => {
+                            const boardData = Espruino.Core.Env.getBoardData();
+                            if (boardData && boardData.VERSION) {
+                                pipboyVersion = boardData.VERSION;
+                                console.log(`Retrieved version from board data: ${pipboyVersion}`);
+                                
+                                // Disable slow write for faster transfers over Web Serial API
+                                Espruino.Core.Serial.setSlowWrite(false, true);
+                                console.log('Disabled slow write for fast USB transfers');
+                                
+                                connectionStatus.textContent = `CONNECTED - VERSION: ${pipboyVersion}`;
+                                connectionStatus.style.color = '#00ff41';
+                                connectButton.textContent = 'DISCONNECT';
+                                connectButton.disabled = false;
+                                populateFirmwareDropdown();
+                            } else {
+                                // Fallback if board data not available yet
+                                pipboyVersion = 'unknown';
+                                
+                                // Disable slow write for faster transfers over Web Serial API
+                                Espruino.Core.Serial.setSlowWrite(false, true);
+                                console.log('Disabled slow write for fast USB transfers');
+                                
+                                connectionStatus.textContent = 'CONNECTED - VERSION: unknown';
+                                connectionStatus.style.color = '#ffaa00';
+                                connectButton.textContent = 'DISCONNECT';
+                                connectButton.disabled = false;
+                                populateFirmwareDropdown();
+                            }
+                        }, 500); // Give env.js time to process the connection
+
+                    } else {
+                        // Connection failed
+                        const msg = (cInfo !== undefined && cInfo.error !== undefined) ? `: ${cInfo.error}` : '';
+                        connectionStatus.textContent = `ERROR: Connection Failed${msg}`;
+                        connectionStatus.style.color = '#ff4444';
+                        connectButton.textContent = 'CONNECT TO PIP-BOY';
+                        connectButton.disabled = false;
+                        activePort = null;
+                        isConnected = false;
+                    }
+                }, function(cInfo) {
+                    // Disconnect callback
+                    console.log("Disconnected:", JSON.stringify(cInfo));
                     activePort = null;
-                    activeReader = null;
-                    activeWriter = null;
                     isConnected = false;
                     pipboyVersion = null;
                     connectButton.textContent = 'CONNECT TO PIP-BOY';
@@ -37,114 +149,8 @@ document.addEventListener('DOMContentLoaded', () => {
                     connectionStatus.style.color = '#ff8800';
                     fwSelect.disabled = true;
                     fwSelect.innerHTML = '<option value="">-- CONNECT TO PIP-BOY FIRST --</option>';
-                    console.log('Disconnected from Pip-Boy');
-                    return;
-                } catch (e) {
-                    console.log('Error disconnecting:', e);
-                }
-            }
-
-            connectButton.disabled = true;
-            connectButton.textContent = 'CONNECTING...';
-            connectionStatus.textContent = '';
-
-            try {
-                if (!navigator.serial) {
-                    throw new Error('Web Serial API not supported. Please use Chrome, Edge, or Opera.');
-                }
-
-                const port = await navigator.serial.requestPort({
-                    filters: [{ usbVendorId: 0x0483 }]
                 });
-
-                await port.open({ baudRate: 9600 });
-                activePort = port;
-
-                const textDecoder = new TextDecoderStream();
-                const readableStreamClosed = activePort.readable.pipeTo(textDecoder.writable);
-                activeReader = textDecoder.readable.getReader();
-
-                const textEncoder = new TextEncoderStream();
-                const writableStreamClosed = textEncoder.readable.pipeTo(activePort.writable);
-                activeWriter = textEncoder.writable.getWriter();
-
-                // Send reset and command to get VERSION
-                await activeWriter.write('\x10\n');
-                await new Promise(resolve => setTimeout(resolve, 100));
-                await activeWriter.write('process.env.VERSION\n');
-                await new Promise(resolve => setTimeout(resolve, 500));
-
-                // Read response with timeout
-                let response = '';
-                let timeoutId;
-                
-                const readWithTimeout = new Promise(async (resolve, reject) => {
-                    timeoutId = setTimeout(() => {
-                        reject(new Error('Timeout reading version from Pip-Boy'));
-                    }, 5000);
-
-                    try {
-                        while (true) {
-                            const { value, done } = await activeReader.read();
-                            if (done) break;
-                            response += value;
-                            console.log('Received:', value);
-                            
-                            // Look for the version pattern in response
-                            if (response.match(/["']?\d+v\d+/)) {
-                                clearTimeout(timeoutId);
-                                resolve(response);
-                                break;
-                            }
-                        }
-                    } catch (error) {
-                        clearTimeout(timeoutId);
-                        reject(error);
-                    }
-                });
-
-                response = await readWithTimeout;
-
-                // Extract version from response
-                const versionMatch = response.match(/["']?(\d+v\d+(?:\.\d+)?)["']?/);
-                if (versionMatch) {
-                    pipboyVersion = versionMatch[1];
-                    console.log(`Detected Pip-Boy version: ${pipboyVersion}`);
-                    connectionStatus.textContent = `CONNECTED - VERSION: ${pipboyVersion}`;
-                    connectionStatus.style.color = '#00ff41';
-                    connectButton.textContent = 'DISCONNECT';
-                    connectButton.disabled = false;
-                    isConnected = true;
-                    
-                    // Populate firmware dropdown based on version compatibility
-                    populateFirmwareDropdown();
-                } else {
-                    console.log('Full response:', response);
-                    throw new Error('Could not detect firmware version from Pip-Boy');
-                }
-
-                // Keep reader and writer active for future operations
-                // Don't release locks - we'll reuse them
-
-
-            } catch (error) {
-                console.error('Connection error:', error);
-                connectionStatus.textContent = `ERROR: ${error.message}`;
-                connectionStatus.style.color = '#ff4444';
-                connectButton.textContent = 'CONNECT TO PIP-BOY';
-                connectButton.disabled = false;
-                
-                // Clean up on error
-                if (activePort) {
-                    try {
-                        await activePort.close();
-                    } catch (e) {
-                        console.log('Error closing port:', e);
-                    }
-                }
-                activePort = null;
-                isConnected = false;
-            }
+            });
         });
     }
 
@@ -697,31 +703,26 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // --- Helper to read response from device ---
     async function readDeviceResponse(timeoutMs = 2000) {
-        let response = '';
         const startTime = Date.now();
+        const initialBufferLength = serialDataBuffer.length;
         
-        try {
-            while (Date.now() - startTime < timeoutMs) {
-                const { value, done } = await Promise.race([
-                    activeReader.read(),
-                    new Promise((_, reject) => 
-                        setTimeout(() => reject(new Error('timeout')), 500)
-                    )
-                ]);
-                
-                if (done) break;
-                if (value) {
-                    response += value;
-                    // If we got a complete response (ends with newline or prompt), return it
-                    if (response.includes('\n>') || response.includes('\r\n>')) {
-                        break;
-                    }
+        // Wait for new data to arrive in the buffer
+        while (Date.now() - startTime < timeoutMs) {
+            // Check if we have a complete response (ends with prompt)
+            if (serialDataBuffer.length > initialBufferLength) {
+                const newData = serialDataBuffer.substring(initialBufferLength);
+                // Look for prompt indicating response is complete
+                if (newData.includes('>') || newData.includes('\n')) {
+                    // Give a bit more time for any remaining data
+                    await new Promise(resolve => setTimeout(resolve, 100));
+                    break;
                 }
             }
-        } catch (e) {
-            // Timeout or error reading
+            // Wait a bit before checking again
+            await new Promise(resolve => setTimeout(resolve, 50));
         }
         
+        const response = serialDataBuffer.substring(initialBufferLength);
         return response;
     }
 
@@ -791,22 +792,30 @@ document.addEventListener('DOMContentLoaded', () => {
             // Check what files already exist in the target directory
             console.log(`Checking existing files in ${targetPath}...`);
             
-            await writeCommand(`\x10print(JSON.stringify(require('fs').readdir(${JSON.stringify(targetPath)}) || []));\n`);
-            await delay(500);
+            // Clear buffer before sending command
+            serialDataBuffer = '';
             
-            const readdirResponse = await readDeviceResponse(2000);
+            await writeCommand(`\x10print(JSON.stringify(require('fs').readdir(${JSON.stringify(targetPath)}) || []));\n`);
+            
+            // Wait for response to arrive
+            await delay(1000);
+            
+            const readdirResponse = serialDataBuffer;
             console.log('Directory listing response:', readdirResponse);
             
             let existingFiles = [];
             try {
                 // Try to parse the JSON array from the response
-                const match = readdirResponse.match(/\[.*\]/);
+                const match = readdirResponse.match(/\[.*\]/s);
                 if (match) {
-                    existingFiles = JSON.parse(match[0]);
+                    // Remove any line breaks within the JSON string that might have been added during transmission
+                    const jsonStr = match[0].replace(/\n/g, '').replace(/\r/g, '');
+                    existingFiles = JSON.parse(jsonStr);
                     console.log(`Found ${existingFiles.length} existing files:`, existingFiles);
                 }
             } catch (e) {
-                console.log('Could not parse existing files, will not upload anything.');
+                console.log('Could not parse existing files:', e.message);
+                console.log('Response was:', readdirResponse);
                 return;
             }
 
@@ -825,12 +834,6 @@ document.addEventListener('DOMContentLoaded', () => {
                 const fileName = filesToUpload[fileIndex];
                 const filePath = `${sourceFolder}/${fileName}`;
                 
-                // Update progress on screen every few files
-                if (fileIndex % 5 === 0) {
-                    await writeCommand(`\x10g.clearRect(0,180,478,200);g.drawString("Uploading ${fileIndex + 1}/${filesToUpload.length}: ${fileName}",240,190,true);\n`);
-                    await delay(50);
-                }
-                
                 // Fetch the file from the local resources folder
                 try {
                     const response = await fetch(filePath);
@@ -845,8 +848,8 @@ document.addEventListener('DOMContentLoaded', () => {
                     
                     console.log(`Uploading ${fileName} (${bytes.length} bytes)...`);
                     
-                    // Open file for writing on SD card using fs
-                    await writeCommand(`\x10var f=E.openFile(${JSON.stringify(targetFile)},"w");\n`);
+                    // Open file for writing on SD card using E.openFile
+                    await writeCommand(`\x10var f=E.openFile(${JSON.stringify(targetFile)},"w");\n`, false);
                     await delay(100);
                     
                     // Write file in chunks
@@ -856,24 +859,40 @@ document.addEventListener('DOMContentLoaded', () => {
                     for (let i = 0; i < bytes.length; i += chunkSize) {
                         const chunk = bytes.slice(i, Math.min(i + chunkSize, bytes.length));
                         
-                        // Convert chunk to string for transmission
-                        let chunkString = '';
-                        chunk.forEach(byte => chunkString += String.fromCharCode(byte));
+                        // Convert chunk to base64 for safe transmission
+                        let chunkBinary = '';
+                        for (let j = 0; j < chunk.length; j++) {
+                            chunkBinary += String.fromCharCode(chunk[j]);
+                        }
+                        const base64Chunk = btoa(chunkBinary);
                         
-                        const cmd = `\x10f.write(${JSON.stringify(chunkString)});\n`;
+                        // Update progress on screen and in console
+                        const chunkNum = Math.floor(i / chunkSize) + 1;
                         
-                        await writeCommand(cmd);
+                        // Update screen every few chunks to reduce overhead
+                        if (chunkNum % 5 === 1 || chunkNum === totalChunks) {
+                            await writeCommand(`\x10g.clearRect(0,210,478,240);g.drawString("File ${fileIndex + 1}/${filesToUpload.length}: ${fileName}",240,215,true);g.drawString("Chunk ${chunkNum}/${totalChunks}",240,235,true);\n`, false);
+                            await delay(30);
+                        }
+                        
+                        // Log to console only
+                        console.log(`  Writing chunk ${chunkNum}/${totalChunks}...`);
+                        
+                        // Write chunk using file handle - decode base64 on device (no logging)
+                        const cmd = `\x10f.write(atob(${JSON.stringify(base64Chunk)}));\n`;
+                        await writeCommand(cmd, false);
                         await delay(30);
                     }
                     
                     // Close the file
-                    await writeCommand('\x10f.close();\n');
+                    await writeCommand('\x10f.close();\n', false);
                     await delay(100);
                     
                     console.log(`✓ Uploaded ${fileName}`);
                     
                 } catch (error) {
                     console.error(`Error uploading ${fileName}:`, error);
+                    // Don't stop on error, continue with next file
                 }
             }
             
@@ -902,10 +921,13 @@ document.addEventListener('DOMContentLoaded', () => {
         try {
             console.log('Using existing connection to Pip-Boy...');
 
-            // Helper to write commands using the persistent writer
-            async function writeCommand(cmd) {
-                await activeWriter.write(cmd);
-                //console.log('Sent:', cmd.replace(/\n/g, '\\n').replace(/\x10/g, '\\x10'));
+            // Helper to write commands using Espruino's serial
+            async function writeCommand(cmd, showLog = true) {
+                return new Promise((resolve) => {
+                    Espruino.Core.Serial.write(cmd, showLog, () => {
+                        resolve();
+                    });
+                });
             }
 
             // Helper to wait
@@ -965,14 +987,14 @@ document.addEventListener('DOMContentLoaded', () => {
                 writeSDButton.textContent = `WRITING ${chunkNum}/${totalChunks}`;
                 if (chunkNum % 10 === 1 || chunkNum === totalChunks) {
                     // Update screen every 10 chunks to reduce overhead
-                    await writeCommand(`\x10g.clearRect(0,140,478,319);g.drawString("Writing ${chunkNum}/${totalChunks}",240,160,true);\n`);
+                    await writeCommand(`\x10g.clearRect(0,140,478,319);g.drawString("Writing ${chunkNum}/${totalChunks}",240,160,true);\n`, false);
                     await delay(50);
                 }
                 
-                // Write chunk using file handle with error handling
+                // Write chunk using file handle with error handling (no logging)
                 // Convert to base64 to safely transmit binary data
                 const cmd = `\x10try{fw.write(atob(${JSON.stringify(btoa(chunk))}));}catch(e){g.drawString("Err: "+e.message,240,280,true);}\n`;
-                await writeCommand(cmd);
+                await writeCommand(cmd, false);
                 
                 // Small delay between chunks
                 await delay(20);
@@ -1093,10 +1115,13 @@ document.addEventListener('DOMContentLoaded', () => {
         try {
             console.log('Using existing connection to Pip-Boy...');
 
-            // Helper to write commands using the persistent writer
-            async function writeCommand(cmd) {
-                await activeWriter.write(cmd);
-                //console.log('Sent:', cmd.replace(/\n/g, '\\n').replace(/\x10/g, '\\x10'));
+            // Helper to write commands using Espruino's serial
+            async function writeCommand(cmd, showLog = true) {
+                return new Promise((resolve) => {
+                    Espruino.Core.Serial.write(cmd, showLog, () => {
+                        resolve();
+                    });
+                });
             }
 
             // Helper to wait
@@ -1143,13 +1168,13 @@ document.addEventListener('DOMContentLoaded', () => {
                 writeFlashButton.textContent = `WRITING ${chunkNum}/${totalChunks}`;
                 if (chunkNum % 10 === 1 || chunkNum === totalChunks) {
                     // Update screen every 10 chunks to reduce overhead
-                    await writeCommand(`\x10g.clearRect(0,140,478,319);g.drawString("Writing ${chunkNum}/${totalChunks}",240,160,true);\n`);
+                    await writeCommand(`\x10g.clearRect(0,140,478,319);g.drawString("Writing ${chunkNum}/${totalChunks}",240,160,true);\n`, false);
                     await delay(50);
                 }
                 
-                // Write chunk to Storage with error handling
+                // Write chunk to Storage with error handling (no logging)
                 const cmd = `\x10try{require("Storage").write(${JSON.stringify(fileName)},atob(${JSON.stringify(btoa(chunk))}),${i}${sizeParam});}catch(e){g.drawString("Error: "+e,240,300,true);}\n`;
-                await writeCommand(cmd);
+                await writeCommand(cmd, false);
                 
                 // Delay between chunks to avoid overwhelming the device
                 await delay(100);
@@ -1234,10 +1259,13 @@ document.addEventListener('DOMContentLoaded', () => {
         try {
             console.log('Using existing connection to Pip-Boy...');
 
-            // Helper to write commands using the persistent writer
+            // Helper to write commands using Espruino's serial
             const writeCommand = async (cmd) => {
-                await activeWriter.write(cmd);
-                await new Promise(resolve => setTimeout(resolve, 100));
+                return new Promise((resolve) => {
+                    Espruino.Core.Serial.write(cmd, true, () => {
+                        resolve();
+                    });
+                });
             };
 
             console.log('Triggering firmware update from SD card...');
