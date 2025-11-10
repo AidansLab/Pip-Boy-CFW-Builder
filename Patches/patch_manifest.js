@@ -12,7 +12,14 @@ const PATCH_MANIFEST = {
     "InvPatch": {
         name: "Inventory Patch",
         description: "Adds items menu to the inventory tab.",
-        file: _BASE_PATH + "Patches/InvPatch.js"
+        file: _BASE_PATH + "Patches/InvPatch.js",
+		resources: {
+            sourceFolder: _BASE_PATH + "resources/DATA",
+            targetPath: "DATA",
+            files: [
+                "EquipDown_01.wav", "EquipDown_02.wav", "EquipDown_03.wav", "EquipUp_01.wav", "EquipUp_02.wav", "EquipUp_03.wav", "ICONS.json", "items_0.json", "items_1.json", "items_meta.json", "NukaCola.wav", "Radaway.wav", "Radaway_img.js", "RadX_01.wav", "RadX_02.wav", "Shishkebab_img.js", "Soda_01.wav", "Soda_02.wav", "Soda_03.wav", "Stimpak.wav", "Stimpak_img.js"
+            ]
+        }
     },
 
     "IconMod": {
