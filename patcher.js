@@ -853,18 +853,14 @@ document.addEventListener('DOMContentLoaded', () => {
                     await delay(100);
                     
                     // Write file in chunks
-                    const chunkSize = 512;
+                    const chunkSize = 256;
                     const totalChunks = Math.ceil(bytes.length / chunkSize);
                     
                     for (let i = 0; i < bytes.length; i += chunkSize) {
                         const chunk = bytes.slice(i, Math.min(i + chunkSize, bytes.length));
                         
-                        // Convert chunk to base64 for safe transmission
-                        let chunkBinary = '';
-                        for (let j = 0; j < chunk.length; j++) {
-                            chunkBinary += String.fromCharCode(chunk[j]);
-                        }
-                        const base64Chunk = btoa(chunkBinary);
+                        // Convert chunk to array of byte values for transmission
+                        const byteArray = Array.from(chunk);
                         
                         // Update progress on screen and in console
                         const chunkNum = Math.floor(i / chunkSize) + 1;
@@ -878,8 +874,8 @@ document.addEventListener('DOMContentLoaded', () => {
                         // Log to console only
                         console.log(`  Writing chunk ${chunkNum}/${totalChunks}...`);
                         
-                        // Write chunk using file handle - decode base64 on device (no logging)
-                        const cmd = `\x10f.write(atob(${JSON.stringify(base64Chunk)}));\n`;
+                        // Write chunk using file handle - convert byte array to string on device
+                        const cmd = `\x10f.write(String.fromCharCode.apply(null,${JSON.stringify(byteArray)}));\n`;
                         await writeCommand(cmd, false);
                         await delay(30);
                     }
