@@ -1,6 +1,10 @@
 // This manifest is loaded by index.html
 // It tells the patcher what to load.
 
+// Detect base path - defaults to empty string for standalone use,
+// or uses CFW_BUILDER_BASE_PATH if embedded in another app (e.g., pip-terminal)
+const _BASE_PATH = (typeof window !== 'undefined' && window.CFW_BUILDER_BASE_PATH) ? window.CFW_BUILDER_BASE_PATH : '';
+
 const PATCH_MANIFEST = {
     // The key (e.g., "InvPatch") MUST match the object key in the patch file
     // and the marker name in FW.js.
@@ -8,21 +12,21 @@ const PATCH_MANIFEST = {
     "InvPatch": {
         name: "Inventory Patch",
         description: "Adds items menu to the inventory tab.",
-        file: "Patches/InvPatch.js"
+        file: _BASE_PATH + "Patches/InvPatch.js"
     },
 
     "IconMod": {
         name: "Icon Mod",
         description: "Removes cog and holotape icons.",
-        file: "Patches/IconMod.js"
+        file: _BASE_PATH + "Patches/IconMod.js"
     },
 
     "PerksPatch": {
         name: "Perks System",
         description: "Adds the perks system.",
-        file: "Patches/PerksPatch.js",
+        file: _BASE_PATH + "Patches/PerksPatch.js",
         resources: {
-            sourceFolder: "resources/PERKS",
+            sourceFolder: _BASE_PATH + "resources/PERKS",
             targetPath: "USER_BOOT/PIP_UI_PLUS/PERKS",
             files: [
                 "_enabled_perks.dat", "_perks.dat", "action_boy.avi", "action_girl.avi", "adamantium_skeleton.avi", "animal_friend.avi",
@@ -50,9 +54,9 @@ const PATCH_MANIFEST = {
 	"SpecialPatch": {
         name: "SPECIAL System",
         description: "Adds the SPECIAL system.",
-        file: "Patches/SpecialPatch.js",
+        file: _BASE_PATH + "Patches/SpecialPatch.js",
         resources: {
-            sourceFolder: "resources/SPECIAL",
+            sourceFolder: _BASE_PATH + "resources/SPECIAL",
             targetPath: "USER_BOOT/PIP_UI_PLUS/SPECIAL",
             files: [
                 "agility.avi", "charisma.avi", "endurance.avi", "intelligence.avi",
@@ -64,17 +68,17 @@ const PATCH_MANIFEST = {
 	"MaintenancePatch": {
         name: "Maintenance Features",
         description: "Adds advanced maintenance features like RAM Scan and theme palette customization (theme palette customization not yet implemented).",
-        file: "Patches/MaintenancePatch.js"
+        file: _BASE_PATH + "Patches/MaintenancePatch.js"
     },
 	
 	"CustomRadioPatch": {
         name: "Custom Radio Patch",
         description: "Adds custom radios based on folders in the radio folder.",
-        file: "Patches/CustomRadioPatch.js"
+        file: _BASE_PATH + "Patches/CustomRadioPatch.js"
     },
 	
 	"KPSSRenamePatch": {
-        "file": "Patches/KPSSRenamePatch.js",
+        "file": _BASE_PATH + "Patches/KPSSRenamePatch.js",
         "name": "KPSS Rename",
         "description": "Rename 'KPSS Radio' to a custom name.",
         "inputType": "text",

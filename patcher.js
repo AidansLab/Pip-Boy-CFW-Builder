@@ -1,4 +1,13 @@
 document.addEventListener('DOMContentLoaded', () => {
+    // Detect base path for resources - defaults to empty for standalone,
+    // or uses CFW_BUILDER_BASE_PATH if embedded (e.g., in pip-terminal)
+    const basePath = (typeof window !== 'undefined' && window.CFW_BUILDER_BASE_PATH) ? window.CFW_BUILDER_BASE_PATH : '';
+    
+    // Initialize window.Patches object if it doesn't exist
+    if (typeof window.Patches === 'undefined') {
+        window.Patches = {};
+    }
+    
     // Initialize Espruino Core modules that are needed
     if (!Espruino.Core.Notifications) {
         Espruino.Core.Notifications = {
@@ -202,7 +211,7 @@ document.addEventListener('DOMContentLoaded', () => {
             if (isCompatible) {
                 hasCompatibleFirmware = true;
                 const option = document.createElement('option');
-                option.value = "Firmware/" + versionInfo.file;
+                option.value = basePath + "Firmware/" + versionInfo.file;
                 option.textContent = versionInfo.name || `Version ${versionKey}`;
                 fwSelect.appendChild(option);
                 console.log(`Version of Pip-Boy is ${pipboyVersion}, which is above or equal to ${requiredVersion} required by ${versionInfo.name}.`);
@@ -871,20 +880,18 @@ document.addEventListener('DOMContentLoaded', () => {
                             await delay(30);
                         }
                         
-                        // Log to console only
-                        console.log(`  Writing chunk ${chunkNum}/${totalChunks}...`);
-                        
                         // Write chunk using file handle - convert byte array to string on device
                         const cmd = `\x10f.write(String.fromCharCode.apply(null,${JSON.stringify(byteArray)}));\n`;
                         await writeCommand(cmd, false);
                         await delay(30);
+                        console.log(`Wrote chunk ${chunkNum}/${totalChunks}...`);
                     }
                     
                     // Close the file
                     await writeCommand('\x10f.close();\n', false);
                     await delay(100);
                     
-                    console.log(`✓ Uploaded ${fileName}`);
+                    console.log(`Uploaded ${fileName}`);
                     
                 } catch (error) {
                     console.error(`Error uploading ${fileName}:`, error);
@@ -892,7 +899,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 }
             }
             
-            console.log(`✓ Completed resources for ${patch.name}`);
+            console.log(`Completed resources for ${patch.name}`);
         }
         
         console.log('All resource uploads complete.');
