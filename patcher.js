@@ -1293,7 +1293,17 @@ document.addEventListener('DOMContentLoaded', () => {
             await writeCommand('\x10load();\n');
             
             console.log('Firmware installation triggered. Device will load from SD card.');
-            installButton.textContent = '✓ INSTALLATION TRIGGERED';
+            installButton.textContent = 'INSTALLATION TRIGGERED';
+
+			
+            // Wait a moment for the command to be processed, then close the connection
+            await new Promise(resolve => setTimeout(resolve, 500));
+
+            // Properly close the Espruino serial connection before device reboots
+            if (Espruino.Core.Serial.isConnected()) {
+                Espruino.Core.Serial.close();
+                console.log('Serial connection closed before device reboot');
+            }
 
             // Mark as disconnected since device will reboot during load()
             isConnected = false;
@@ -1307,7 +1317,7 @@ document.addEventListener('DOMContentLoaded', () => {
             fwSelect.innerHTML = '<option value="">-- CONNECT TO PIP-BOY FIRST --</option>';
 
             setTimeout(() => {
-                installButton.textContent = '█ INSTALL FROM SD TO FLASH █';
+                installButton.textContent = 'INSTALL FROM SD TO FLASH';
                 installButton.disabled = false;
                 alert('Installation triggered! The device is rebooting.\n\nPlease reconnect to perform additional operations.');
             }, 3000);
@@ -1442,5 +1452,6 @@ document.addEventListener('DOMContentLoaded', () => {
         // $& means the whole matched string
         return string.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
     }
+
 
 }); // End DOMContentLoaded
