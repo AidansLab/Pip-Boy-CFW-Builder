@@ -1,4 +1,6 @@
 //1.31
+//MaintenancePatchInsert_RAMScan
+
 function log(a, b)
 {
 	let c;
@@ -889,14 +891,16 @@ Date().getFullYear() == 2e3 && setTime(new Date("2077-10-23T09:47").getTime() / 
 	return this.toString().padStart(2, "0")
 };
 let dc = require("heatshrink").decompress;
+//IconModBegin_IconObjects
 let icons = {
 	cog: "\x8CF UP\x02U\xFF(\x10*\xCD\x7F\xE3\xA5\x02\x83o\xDF\xFE\xBE\xA0Pw\xFF\xFF\xFF\xF4\n=\xBC\n\bD)\xF8\x14\x1F\xC5V\xAF\xFF\xFC\xDF\xFF\xF9P(?Z\xFF\xFF\xAA\x05\x1C\"\x18tQH\xC3\xB3/\xE4\xD0\xCB!\x19H\0 ",
 	holotape: "\x8CF UP\x02\xD5\xBF\xF8\0,\xAD|\n\x1F\xD6\xDE\x03\x07\xFDV\x02\x87\xFC\xAA\xEDm\xF7\xFF\xFF\xE6\xABu\xB7K\xC0\xA1\x84B\xFE\x84B\x11\x04\x1D\x0B\xD5\xAA\xD7\x8AD\x17\x8A\x05\x0F\xF4\x11\x1F\xF0\x1D\x10\n\t4O-WT\0\b\xEC\xBDT",
 	alarm: "\x87\xC4\xA0P\b\x18\x1C)p\b\x18_\xFF\x01\0\xDF\x80\xC1\x03\x02\x03\x06~\x03\x06\x02\x02\x07\xF9\x07\x01\x83\xF4\x8F\x80\xC1\xE8_\xC0`\xD0@@\xFF``0~\x12\xF0\x18> \x10?\xFFx\f_\xF4V}\xF1\xA8@/\xF4\b\0",
-	noAlarm: "\x87\xC4\xA0P\b\x18\x1C)p\b\x18_\xFF\x01\0\x8F\x80\xC2\x97\x80\xC1\x90\0\xC1\x80x\'\xFF\xC88\f\x1F\xA4\x7F\xA1\x7F\0\x87A\xFF\xF07\xB00\x18;\0\xE0^/\xF8\f\x1Fx\f\x1A\b\f8\xAC\xFB\xE28\x06\xFF@\x80\0",
+	noAlarm: "\x87\xC4\xA0P\b\x18\x1C)p\b\x18_\xFF\x01\0\x8F\x80\xC2\x97\x80\xC1\x90\0\xC1\x80x'\xFF\xC88\f\x1F\xA4\x7F\xA1\x7F\0\x87A\xFF\xF07\xB00\x18;\0\xE0^/\xF8\f\x1Fx\f\x1A\b\f8\xAC\xFB\xE28\x06\xFF@\x80\0",
 	charging: "\x85D\xA0P\xFF\xFE\x03\xFF\xF0\x8F\xFF`_\xFE\x04\xFF\xE9\x03\xFF@/\xFDZ\xDF\xFC\0\x17?\xFF\xF4\x88\x83\x01\x8F\xF0 _H\x04\xFA\x01\x03\xE0@&\x90\b8\xB4\x1A\x04\0",
 	snooze: "\x11\x12\x02\0\x01V\xAF\0\0\xFF\xFF\xC0\0?\xFF\xF0\0\x05A\xF4\0\0\0\xFC\0\0\0}\x02\x94\0?\0\xFF\xFC\x1F@\x1A\xFF\x0F\xC0\0\x1FG\xD0\0\x0F\x83\xF0\0\x0B\x81\xF4\x05\x0B\xC0\xFF\xFF\xC7\xD0\x7F\xFF\xF3\xD0\x0F\xEAV\xF5\0\0\0\xFF\xFC\0\0\x05\xBF\0\0\0"
 };
+//IconModEnd_IconObjects
 let bC = Graphics.createArrayBuffer(400, 210, 2,
 {
 	msb: !0,
@@ -1580,6 +1584,7 @@ let radioPlayClip = (a, b) => (a == undefined && (a = CLIP_TYPE.MUSIC), new Prom
 		b && console.log(`Playing radio clip type ${a}: ${e[g]}`), Pip.audioStart("RADIO/" + e[g]), Pip.on("audioStopped", d), Pip.radioClipPlaying = !0, Pip.lastClipIndex = g
 	}
 }));
+//CustomRadioPatchBegin_submenuRadio
 let submenuRadio = () =>
 {
 	rd._options || rd.setupI2C(), bC.clear(1);
@@ -1703,6 +1708,7 @@ let submenuRadio = () =>
 		Pip.radioKPSS = !1, clearInterval(h), rd.tuningInterval && clearInterval(rd.tuningInterval), rd.tuningInterval = null, rd.rdsTimer && clearInterval(rd.rdsTimer), rd.rdsTimer = null, Pip.removeListener("knob2", i), b && clearTimeout(b), g()
 	}
 };
+//CustomRadioPatchEnd_submenuRadio
 let submenuStatus = () =>
 {
 	const c = {
@@ -2012,6 +2018,9 @@ let submenuInvAttach = () =>
 		Pip.removeListener("knob1", e), clearInterval(f)
 	}
 };
+//InvPatchInsert_ItemsFunction
+//PerksPatchInsert_PerksFunction
+//SpecialPatchInsert_SpecialFunction
 let submenuExtTerminal = () =>
 {
 	E.setUSBHID(
@@ -2549,6 +2558,7 @@ let submenuMaintenance = () =>
 		{
 			Pip.removeSubmenu(), submenuPalette()
 		},
+		//MaintenancePatchInsert_RAMScanToggle
 		"Demo mode": enterDemoMode,
 		About: function()
 		{
@@ -2820,6 +2830,7 @@ let submenuPalette = () =>
 		bH.flip(), bC.flip(), bF.flip()
 	}, 50)
 };
+/*KPSSRenamePatchBegin_ShowMenuRewrite*/
 E.showMenu = function(g)
 {
 	function i(a)
@@ -2899,7 +2910,7 @@ E.showMenu = function(g)
 	{
 		Pip.removeListener("knob1", i)
 	}, c
-}, E.showPrompt = function(e, a)
+}/*KPSSRenamePatchEnd_ShowMenuRewrite*/, E.showPrompt = function(e, a)
 {
 	function c()
 	{
@@ -2945,15 +2956,19 @@ E.showMenu = function(g)
 	submenu:
 	{
 		STATUS: submenuStatus,
+		//PerksPatchInsert_Menu
+		//SpecialPatchInsert_Menu
+		//SpecialPerksComboBegin_StatMenuItems
 		CONNECT: submenuConnect,
 		DIAGNOSTICS: submenuDiagnostics
+		//SpecialPerksComboEnd_StatMenuItems
 	}
 },
 {
 	name: "INV",
 	submenu:
 	{
-		ITEMS: submenuItems,
+		//InvPatchInsert_Menu
 		ATTACHMENTS: submenuInvAttach,
 		APPAREL: submenuApparel,
 		APPS: submenuApps,
@@ -2976,7 +2991,7 @@ E.showMenu = function(g)
 {
 	name: "RADIO",
 	fn: submenuRadio
-}], getUserApps().length || delete MODEINFO[2].submenu.APPS, Pip.setPalette && settings.palette && Pip.setPalette(settings.palette.split(",").map(a => new Uint16Array(E.toArrayBuffer(atob(a))))), checkBatteryAndSleep() || (KNOB1_BTN.read() && BTN_POWER.read() ? (log("Entering factory test mode"), factoryTestMode()) : Pip.isSDCardInserted() ? (Pip.addWatches(), KNOB1_BTN.read() ? (log("Booting into demo mode"), enterDemoMode()) : settings.longPressToWake ? (log("Playing boot animation"), settings.longPressToWake = !1, saveSettings(), playBootAnimation()) : (Pip.sleeping = "BUSY", Pip.fadeOn(), fs.statSync("BOOT") ? (log("Normal boot - showing main menu"), setTimeout(a =>
+}], getUserApps().length || delete MODEINFO[2].submenu.APPS, Pip.setPalette && settings.palette && Pip.setPalette(settings.palette.split(",").map(a => new Uint16Array(E.toArrayBuffer(atob(a))))), checkBatteryAndSleep() || (KNOB1_BTN.read() && BTN_POWER.read() ? (log("Entering factory test mode"), factoryTestMode()) : Pip.isSDCardInserted() ? (Pip.addWatches(),/*MaintenancePatchInsert_RAMScanCheck*/ KNOB1_BTN.read() ? (log("Booting into demo mode"), enterDemoMode()) : settings.longPressToWake ? (log("Playing boot animation"), settings.longPressToWake = !1, saveSettings(), playBootAnimation()) : (Pip.sleeping = "BUSY", Pip.fadeOn(), fs.statSync("BOOT") ? (log("Normal boot - showing main menu"), setTimeout(a =>
 {
 	Pip.fadeOff().then(a =>
 	{
