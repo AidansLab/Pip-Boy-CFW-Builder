@@ -168,7 +168,7 @@ let submenuRadio = () =>
 			format: a => a ? "On" : "Off",
 			onchange: function(a) {
 				Pip.customRadioState.activeStation = a ? folderName : "NONE";
-				Pip.radioKPSS = !1; // Deactivate KPSS
+				Pip.radioKPSS = a; // Deactivate KPSS
 				Pip.audioStop();
 				if (a) {
 					playFromStationFolder(folderName).catch(err => log("Station error: " + err));
@@ -188,16 +188,16 @@ let submenuRadio = () =>
 
 	// --- Modified Music Logic Interval ---
 	let h = setInterval(() => {
-		if (Pip.radioKPSS && !Pip.streamPlaying()) {
-			// KPSS logic (original)
-			radioPlayClip(CLIP_TYPE.MUSIC);
-		} else if (Pip.customRadioState.activeStation !== "NONE" && Pip.customRadioState.activeStation !== "KPSS" && !Pip.streamPlaying()) {
+		if (Pip.customRadioState.activeStation !== "NONE" && Pip.customRadioState.activeStation !== "KPSS" && !Pip.streamPlaying()) {
 			// Custom station logic
 			playFromStationFolder(Pip.customRadioState.activeStation).catch(err => {
 				log("Station autoplay error: " + err);
 				// Stop trying if folder is bad
 				Pip.customRadioState.activeStation = "NONE";
 			});
+		} else if (Pip.radioKPSS && !Pip.streamPlaying()) {
+			// KPSS logic (original)
+			radioPlayClip(CLIP_TYPE.MUSIC);
 		} else {
 			// Visualizer logic (original)
 			k();
