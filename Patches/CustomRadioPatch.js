@@ -168,7 +168,7 @@ let submenuRadio = () =>
 			format: a => a ? "On" : "Off",
 			onchange: function(a) {
 				Pip.customRadioState.activeStation = a ? folderName : "NONE";
-				Pip.radioKPSS = !1; // Deactivate KPSS
+				Pip.radioKPSS = a; // Deactivate KPSS
 				Pip.audioStop();
 				if (a) {
 					playFromStationFolder(folderName).catch(err => log("Station error: " + err));
