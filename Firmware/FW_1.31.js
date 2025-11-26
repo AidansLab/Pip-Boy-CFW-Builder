@@ -2956,8 +2956,8 @@ E.showMenu = function(g)
 	submenu:
 	{
 		STATUS: submenuStatus,
-		//PerksPatchInsert_Menu
 		//SpecialPatchInsert_Menu
+		//PerksPatchInsert_Menu
 		//SpecialPerksComboBegin_StatMenuItems
 		CONNECT: submenuConnect,
 		DIAGNOSTICS: submenuDiagnostics

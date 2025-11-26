@@ -90,7 +90,13 @@ const PATCH_MANIFEST = {
         "description": "Rename 'KPSS Radio' to a custom name.",
         "inputType": "text",
         "placeholder": "Enter new name (e.g., GNR)"
-    }
+    },
+	
+	"CameraModule": {
+        name: "Pip-Cam Module",
+        description: "Module for Pip-Cam support.",
+        file: _BASE_PATH + "Patches/CameraModule.js"
+	}
 
     // Add new patches here
 };
