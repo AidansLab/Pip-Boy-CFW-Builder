@@ -1,6 +1,8 @@
 window.Patches.PerksPatch = {
-    
-    // 'insert' objects are injected at insertion markers
+//Based on Pip UI Plus by:
+//Mercy
+//Cody Tolene
+//Athene Allen
     insert: {
         PerksFunction: `
 let submenuPerks = () =>

@@ -1,6 +1,8 @@
 window.Patches.SpecialPatch = {
-    
-    // 'insert' objects are injected at insertion markers
+//Based on Pip UI Plus by:
+//Mercy
+//Cody Tolene
+//Athene Allen
     insert: {
         SpecialFunction: `
 let submenuSpecial = () =>
