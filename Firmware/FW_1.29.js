@@ -1902,13 +1902,13 @@ let showAlarm = o =>
 	{
 		a && clearTimeout(a), a = undefined, Pip.audioStop(), Pip.videoStop(), configureAlarm(), showMainMenu()
 	}
-
+	//AlarmPatchBegin_showAlarm
 	function m(a)
 	{
 		a == 0 ? (delete settings.alarm.snoozeTime, saveSettings(), c()) : (Pip.clockVertical = !Pip.clockVertical, bC.clear(1).flip(), tm0 = null)
 	}
 	a = setTimeout(c, 6e5), Pip.on("knob1", m), Pip.on("knob2", c);
-
+	//AlarmPatchEnd_showAlarm
 	function n()
 	{
 		E.stopEventPropagation(), e = !0, ts0 = null, Pip.audioStop(), settings.alarm.snoozeTime || (settings.alarm.snoozeTime = settings.alarm.time), settings.alarm.snoozeTime += 6e4 * settings.alarm.snooze, settings.alarm.enabled = !0, saveSettings(), console.log("Snoozed - reconfigured for", new Date(settings.alarm.snoozeTime).toString()), a && clearTimeout(a), a = setTimeout(c, 3e3)
@@ -1918,6 +1918,7 @@ let showAlarm = o =>
 		a && clearTimeout(a), a = undefined, clearInterval(l), Pip.removeListener("knob1", m), Pip.removeListener("knob2", c), Pip.removeListener("torch", n)
 	};
 	let d = settings.alarm.soundIndex;
+	//AlarmPatchBegin_AlarmSound
 	d >= settings.alarm.soundFiles.length ? setTimeout(a =>
 	{
 		rd.enable(!0)
@@ -1925,6 +1926,7 @@ let showAlarm = o =>
 	{
 		repeat: !0
 	})), g.clear(), bH.flip(), bF.flip(), Pip.brightness = 20, Pip.fadeOn()
+	//AlarmPatchEnd_AlarmSound
 };
 let submenuInvAttach = () =>
 {
@@ -2387,11 +2389,14 @@ let submenuApps = () =>
 };
 let submenuSetAlarm = () =>
 {
+	//AlarmPatchInsert_CustomRadio
 	var b, a = {
+		//AlarmPatchInsert_TriggerAlarm
 		"Set alarm time": function()
 		{
 			Pip.removeSubmenu(), delete Pip.removeSubmenu, submenuSetAlarmTime()
 		},
+		//AlarmPatchBegin_AddStations
 		"Alarm sound":
 		{
 			value: settings.alarm.soundIndex,
@@ -2407,6 +2412,7 @@ let submenuSetAlarm = () =>
 				}, 5e3)
 			}
 		},
+		//AlarmPatchEnd_AddStations
 		"Alarm on/off":
 		{
 			value: settings.alarm.enabled,
@@ -2474,10 +2480,12 @@ let submenuMaintenance = () =>
 				settings.clock12hr = a, drawFooter(), saveSettings(), console.log("12/24 hour display set to", settings.clock12hr ? "12 hr" : "24 hr")
 			}
 		},
+		//AlarmPatchBegin_removeOldAlarm
 		"Set alarm": function()
 		{
 			Pip.removeSubmenu(), submenuSetAlarm()
 		},
+		//AlarmPatchEnd_removeOldAlarm
 		"Display timeout":
 		{
 			value: settings.idleTimeout ? Math.round(settings.idleTimeout / 6e4) : 31,
@@ -2930,6 +2938,7 @@ E.showMenu = function(g)
 	{
 		CLOCK: submenuClock,
 		STATS: submenuStats,
+		//AlarmPatchInsert_Menu
 		MAINTENANCE: submenuMaintenance
 	}
 },
