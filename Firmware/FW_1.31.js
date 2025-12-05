@@ -2993,8 +2993,8 @@ E.showMenu = function(g)
 	submenu:
 	{
 		CLOCK: submenuClock,
-		STATS: submenuStats,
 		//AlarmPatchInsert_Menu
+		STATS: submenuStats,
 		MAINTENANCE: submenuMaintenance
 	}
 },
