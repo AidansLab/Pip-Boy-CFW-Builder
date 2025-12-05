@@ -194,6 +194,3 @@ window.Patches.AlarmPatch = {
     }`
     }
 };
-
-// python3 -m http.server 8000
-// http://localhost:8080/index.html
