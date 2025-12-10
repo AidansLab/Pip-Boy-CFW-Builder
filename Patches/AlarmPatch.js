@@ -7,7 +7,7 @@ window.Patches.AlarmPatch = {
         "Trigger Alarm": function()
 		{
             if (!settings.alarm.repeat) {
-                settings.alarm.enabled = false,
+                settings.alarm.enabled = !0,
                 saveSettings();
             }
 			showAlarm();
@@ -104,6 +104,7 @@ window.Patches.AlarmPatch = {
         }
         function p()
         {
+            Pip.removeListener("knob1", m), Pip.removeListener("knob2", n), Pip.removeListener("torch", n),
             a && clearTimeout(a), 
             a = undefined, 
             Pip.audioStop(), 
@@ -113,7 +114,26 @@ window.Patches.AlarmPatch = {
             bH.clear().flip(), 
             bC.clear(1), 
             bC.setFontMonofonto36().setFontAlign(0, 0), 
-            bC.drawString("ALARM TURNED OFF", 200, 100).flip(), 
+            bC.drawString("ALARM TURNED OFF", 200, 100).flip(); 
+            if (settings.alarm.enabled) {
+                setTimeout(q, 3e3);
+            } else {
+                drawFooter(), 
+                setTimeout(showMainMenu, 3e3);
+            }
+        }
+        function q()
+        {   
+            let b = Pip.getDateAndTime();
+		    let a = new Date(settings.alarm.time);
+            let hoursDecimal = (a.getTime() - b.getTime()) / 60 / 60000;
+            let hrs = Math.floor(hoursDecimal);
+            let mins = Math.floor((hoursDecimal - hrs) * 60);
+            bH.clear().flip(), 
+            bC.clear(1), 
+            bC.setFontMonofonto36().setFontAlign(0, 0), 
+            bC.setColor(a & 1 ? 3 : 2).drawString("ALARM SET", 200, 55), 
+            bC.setColor(a & 1 ? 2 : 3).drawString(\`\${hrs} HRS \${mins} MIN FROM NOW\`, 200, 105), bC.flip()
             drawFooter(), 
             setTimeout(showMainMenu, 3e3)
         }
@@ -123,10 +143,11 @@ window.Patches.AlarmPatch = {
             a == 0 ? (delete settings.alarm.snoozeTime, saveSettings(), p()) : (Pip.clockVertical = !Pip.clockVertical, bC.clear(1).flip(), tm0 = null)
         }
 
-        a = setTimeout(c, 6e5), Pip.on("knob1", m), Pip.on("knob2", c);
+        a = setTimeout(c, 6e5), Pip.on("knob1", m);
 
         function n()
         {
+            Pip.removeListener("knob1", m), Pip.removeListener("knob2", n), Pip.removeListener("torch", n),
             E.stopEventPropagation(), 
             e = !0, ts0 = null, 
             Pip.audioStop(), 
@@ -137,9 +158,9 @@ window.Patches.AlarmPatch = {
             a && clearTimeout(a), 
             a = setTimeout(c, 3e3)
         }
-        settings.alarm.snooze && Pip.prependListener("torch", n), Pip.remove = function()
+        settings.alarm.snooze && Pip.prependListener("torch", n), Pip.prependListener("knob2", n),Pip.remove = function()
         {
-            a && clearTimeout(a), a = undefined, clearInterval(l), Pip.removeListener("knob1", m), Pip.removeListener("knob2", c), Pip.removeListener("torch", n)
+            a && clearTimeout(a), a = undefined, clearInterval(l)
         };
         let d = settings.alarm.soundIndex;
         function playFromStationFolder(folderName) {
