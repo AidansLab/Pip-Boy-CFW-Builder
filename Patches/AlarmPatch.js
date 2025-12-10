@@ -254,31 +254,6 @@ window.Patches.AlarmPatch = {
                 b = setTimeout(() => saveSettings(), 5000);
             }
 		},
-    `,
-    configureAlarm: `
-    function configureAlarm()
-    {
-        console.log("Alarm Enabled:", settings.alarm.enabled, "Time:", settings.alarm.time, "Demo Mode:", Pip.demoMode);
-        console.log("Snooze Time:", settings.alarm.snoozeTime);
-        if (alarmTimeout && (console.log("Cancelling existing alarm"), clearTimeout(alarmTimeout)), alarmTimeout = undefined, settings.alarm.enabled && settings.alarm.time && !Pip.demoMode)
-        {
-            let b = Pip.getDateAndTime();
-            let a = new Date(settings.alarm.time);
-            settings.alarm.snoozeTime && (a = new Date(settings.alarm.snoozeTime)), 
-            a.getTime() <= b.getTime() && (console.log(\`Alarm time (\${a}) is in the past, setting to tomorrow\`), 
-            a = Pip.getDateAndTime(), 
-            a.setDate(b.getDate() + 1), 
-            a.setHours(new Date(settings.alarm.time).getHours()), 
-            a.setMinutes(new Date(settings.alarm.time).getMinutes()), delete settings.alarm.snoozeTime), 
-            settings.alarm.snoozeTime || (settings.alarm.time = a.getTime()), 
-            alarmTimeout = setTimeout(function a()
-            {
-                if (Pip.sleeping == "BUSY") return setTimeout(a, 1e4);
-                settings.alarm.repeat || (settings.alarm.enabled = !1);
-                let b = Pip.sleeping;
-                b ? wakeFromSleep(showAlarm) : showAlarm(), console.log("ALARM!")
-            }, a.getTime() - b.getTime()), console.log(\`Alarm set to \${a} (\${((a.getTime()-b.getTime())/60/6e4).toFixed(3)} hours away)\`)
-        }
-    }`
+    `
     }
 };

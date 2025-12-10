@@ -21,7 +21,7 @@ function saveSettings()
 	if (!Pip.isSDCardInserted()) throw new Error("Can't save settings - no SD card");
 	fs.writeFile("settings.json", JSON.stringify(settings))
 }
-//AlarmPatchBegin_configureAlarm
+
 function configureAlarm()
 {
 	if (alarmTimeout && (console.log("Cancelling existing alarm"), clearTimeout(alarmTimeout)), alarmTimeout = undefined, settings.alarm.enabled && settings.alarm.time && !Pip.demoMode)
@@ -37,7 +37,7 @@ function configureAlarm()
 		}, a.getTime() - b.getTime()), console.log(`Alarm set to ${a} (${((a.getTime()-b.getTime())/60/6e4).toFixed(3)} hours away)`)
 	}
 }
-//AlarmPatchEnd_configureAlarm
+
 function wakeOnLongPress()
 {
 	if (BTN_POWER.read())
