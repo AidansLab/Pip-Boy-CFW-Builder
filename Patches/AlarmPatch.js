@@ -6,7 +6,11 @@ window.Patches.AlarmPatch = {
         TriggerAlarm: `
         "Trigger Alarm": function()
 		{
-			showAlarm(), console.log("ALARM!")
+            if (!settings.alarm.repeat) {
+                settings.alarm.enabled = false,
+                saveSettings();
+            }
+			showAlarm();
 		},
         `,
         CustomRadio: `
@@ -67,19 +71,134 @@ window.Patches.AlarmPatch = {
         }`
         },
     replace: {
-       showAlarm: `
-    function p()
-	{
-		a && clearTimeout(a), a = undefined, Pip.audioStop(), configureAlarm(), clearInterval(), Pip.videoStop(), bH.clear().flip(), bC.clear(1), bC.setFontMonofonto36().setFontAlign(0, 0), bC.drawString("ALARM TURNED OFF", 200, 100).flip(), drawFooter(), setTimeout(showMainMenu, 3e3)
-	}
-    
-    function m(a)
-	{
-		a == 0 ? (delete settings.alarm.snoozeTime, saveSettings(), p()) : (Pip.clockVertical = !Pip.clockVertical, bC.clear(1).flip(), tm0 = null)
-	}
+    showAlarm: `
+        tm0 = null;
+        let k = 0,
+            b = 0,
+            e = !1;
+        let l = setInterval(function()
+        {
+            let g = Date();
+            let l = g.getHours();
+            let c, m;
+            settings.clock12hr ? (c = (l + 11) % 12 + 1, m = l < 12 ? "AM" : "PM") : c = l.twoDigit();
+            let d = g.getMinutes().twoDigit();
+            let a = g.getSeconds();
+            if (e)
+            {
+                a != ts0 && (bH.clear().flip(), bC.clear(1), bC.setFontMonofonto36().setFontAlign(0, -1), bC.setColor(a & 1 ? 3 : 2).drawString("SNOOZE", 200, 55), bC.setColor(a & 1 ? 2 : 3).drawString(settings.alarm.snooze + " MIN", 200, 105), bC.flip());
+                return
+            }
+            d != tm0 && (bC.clear(1), Pip.clockVertical ? (bC.drawImage(dc(f), 25, 20), bC.setFontMonofonto96().drawString(c, settings.clock12hr && c < 10 ? 281 : 223, 0).drawString(d, 223, 110), settings.clock12hr && bC.setFontMonofonto28().drawString(m, 350, 177)) : (bC.drawImage(dc(i), 175, 0), bC.setFontMonofonto120().drawString(c, settings.clock12hr && c < 10 ? 93 : 20, 45).drawString(":", 160, 45).drawString(d, 228, 45)), tm0 = d), a != ts0 && (bC.setFontMonofonto120().setFontAlign(0, -1).setColor(a & 1 ? 3 : 1).drawString(":", 196, Pip.clockVertical ? 40 : 45), bH.clear().setFontMonofonto18().setFontAlign(0, -1).setColor(a & 1 ? 13 : 7).drawString("LEFT BUTTON: STOP    TOP BUTTON: SNOOZE", 185, 10, !0).flip(), ts0 = a), (++k & 7) == 0 && (Pip.clockVertical ? bC.setColor(3).drawImage(dc(h), 14, 28,
+            {
+                frame: b
+            }) : bC.setColor(3).drawImage(dc(j), 162, 10,
+            {
+                frame: b
+            }), b = ++b % 3), bC.flip()
+        }, 50);
+        let a;
+        function c()
+        {
+            a && clearTimeout(a), a = undefined, Pip.audioStop(), Pip.videoStop(), configureAlarm(), showMainMenu()
+        }
+        function p()
+        {
+            a && clearTimeout(a), 
+            a = undefined, 
+            Pip.audioStop(), 
+            configureAlarm(), 
+            clearInterval(), 
+            Pip.videoStop(), 
+            bH.clear().flip(), 
+            bC.clear(1), 
+            bC.setFontMonofonto36().setFontAlign(0, 0), 
+            bC.drawString("ALARM TURNED OFF", 200, 100).flip(), 
+            drawFooter(), 
+            setTimeout(showMainMenu, 3e3)
+        }
+        
+        function m(a)
+        {
+            a == 0 ? (delete settings.alarm.snoozeTime, saveSettings(), p()) : (Pip.clockVertical = !Pip.clockVertical, bC.clear(1).flip(), tm0 = null)
+        }
 
-	a = setTimeout(c, 6e5), Pip.on("knob1", m);
-        `,
+        a = setTimeout(c, 6e5), Pip.on("knob1", m), Pip.on("knob2", c);
+
+        function n()
+        {
+            E.stopEventPropagation(), 
+            e = !0, ts0 = null, 
+            Pip.audioStop(), 
+            settings.alarm.snoozeTime || (settings.alarm.snoozeTime = settings.alarm.time), 
+            settings.alarm.snoozeTime += 6e4 * settings.alarm.snooze, 
+            settings.alarm.enabled = !0, saveSettings(), 
+            console.log("Snoozed - reconfigured for", new Date(settings.alarm.snoozeTime).toString()), 
+            a && clearTimeout(a), 
+            a = setTimeout(c, 3e3)
+        }
+        settings.alarm.snooze && Pip.prependListener("torch", n), Pip.remove = function()
+        {
+            a && clearTimeout(a), a = undefined, clearInterval(l), Pip.removeListener("knob1", m), Pip.removeListener("knob2", c), Pip.removeListener("torch", n)
+        };
+        let d = settings.alarm.soundIndex;
+        function playFromStationFolder(folderName) {
+            console.log("Playing from station folder: " + folderName);
+            return new Promise((resolve, reject) => {
+                var onClipEnd = () => {
+                    Pip.removeListener("audioStopped", onClipEnd);
+                    Pip.radioClipPlaying = !1;
+                };
+
+                if (Pip.radioClipPlaying) {
+                    Pip.audioStop();
+                }
+
+                // Ensure we clear listeners from any previous track
+                Pip.removeAllListeners("audioStopped");
+
+                // --- FIX: Add delay to prevent race condition with audioStopped event ---
+                setTimeout(() => {
+                    try {
+                        let stationFiles = fs.readdirSync("RADIO/" + folderName).filter(f => f.toUpperCase().endsWith("WAV") && !f.startsWith(".") && f.toUpperCase().startsWith("MX"));
+                        if (!stationFiles.length) {
+                            return reject("No WAV files in /RADIO/" + folderName);
+                        }
+
+                        let trackIndex = getRandomExcluding(stationFiles.length, Pip.lastClipIndex);
+                        Pip.audioStart(\`RADIO/\${folderName}/\${stationFiles[trackIndex]}\`);
+                        Pip.on("audioStopped", onClipEnd);
+                        Pip.radioClipPlaying = !0;
+                        Pip.lastClipIndex = trackIndex;
+
+                    } catch (e) {
+                        log("Radio folder error: " + e);
+                        reject(e);
+                    }
+                }, 50);
+            });
+        };
+    if (d === settings.alarm.soundFiles.length) {
+        // Case 1: d is exactly the length → enable RD after 1 second
+        setTimeout(() => {
+            rd.enable(true);
+        }, 1000);
+
+    } else if (d > settings.alarm.soundFiles.length) {
+        // Case 2: d is larger → play custom station
+        console.log("Playing custom station:", settings.alarm.customStation);
+
+        Pip.audioStop();
+        playFromStationFolder(settings.alarm.customStation)
+            .catch(err => console.log("Station error: " + err));
+
+    } else {
+        // Case 3: play regular alarm file
+        if (o) console.log("Playing alarm sound file: " + settings.alarm.soundFiles[d]);
+        Pip.audioStart(\`ALARM/\${settings.alarm.soundFiles[d]}\`, { repeat: true });
+    }
+    };`
+    ,
     removeOldAlarm: ``,
     AddStations: `
         "Alarm sound":
@@ -135,62 +254,31 @@ window.Patches.AlarmPatch = {
                 b = setTimeout(() => saveSettings(), 5000);
             }
 		},
-    `,   
-    AlarmSound: `
-        function playFromStationFolder(folderName) {
-            console.log("Playing from station folder: " + folderName);
-            return new Promise((resolve, reject) => {
-                var onClipEnd = () => {
-                    Pip.removeListener("audioStopped", onClipEnd);
-                    Pip.radioClipPlaying = !1;
-                };
-
-                if (Pip.radioClipPlaying) {
-                    Pip.audioStop();
-                }
-
-                // Ensure we clear listeners from any previous track
-                Pip.removeAllListeners("audioStopped");
-
-                // --- FIX: Add delay to prevent race condition with audioStopped event ---
-                setTimeout(() => {
-                    try {
-                        let stationFiles = fs.readdirSync("RADIO/" + folderName).filter(f => f.toUpperCase().endsWith("WAV") && !f.startsWith(".") && f.toUpperCase().startsWith("MX"));
-                        if (!stationFiles.length) {
-                            return reject("No WAV files in /RADIO/" + folderName);
-                        }
-
-                        let trackIndex = getRandomExcluding(stationFiles.length, Pip.lastClipIndex);
-                        Pip.audioStart(\`RADIO/\${folderName}/\${stationFiles[trackIndex]}\`);
-                        Pip.on("audioStopped", onClipEnd);
-                        Pip.radioClipPlaying = !0;
-                        Pip.lastClipIndex = trackIndex;
-
-                    } catch (e) {
-                        log("Radio folder error: " + e);
-                        reject(e);
-                    }
-                }, 50);
-            });
-        };
-    if (d === settings.alarm.soundFiles.length) {
-        // Case 1: d is exactly the length → enable RD after 1 second
-        setTimeout(() => {
-            rd.enable(true);
-        }, 1000);
-
-    } else if (d > settings.alarm.soundFiles.length) {
-        // Case 2: d is larger → play custom station
-        console.log("Playing custom station:", settings.alarm.customStation);
-
-        Pip.audioStop();
-        playFromStationFolder(settings.alarm.customStation)
-            .catch(err => console.log("Station error: " + err));
-
-    } else {
-        // Case 3: play regular alarm file
-        if (o) console.log("Playing alarm sound file: " + settings.alarm.soundFiles[d]);
-        Pip.audioStart(\`ALARM/\${settings.alarm.soundFiles[d]}\`, { repeat: true });
+    `,
+    configureAlarm: `
+    function configureAlarm()
+    {
+        console.log("Alarm Enabled:", settings.alarm.enabled, "Time:", settings.alarm.time, "Demo Mode:", Pip.demoMode);
+        console.log("Snooze Time:", settings.alarm.snoozeTime);
+        if (alarmTimeout && (console.log("Cancelling existing alarm"), clearTimeout(alarmTimeout)), alarmTimeout = undefined, settings.alarm.enabled && settings.alarm.time && !Pip.demoMode)
+        {
+            let b = Pip.getDateAndTime();
+            let a = new Date(settings.alarm.time);
+            settings.alarm.snoozeTime && (a = new Date(settings.alarm.snoozeTime)), 
+            a.getTime() <= b.getTime() && (console.log(\`Alarm time (\${a}) is in the past, setting to tomorrow\`), 
+            a = Pip.getDateAndTime(), 
+            a.setDate(b.getDate() + 1), 
+            a.setHours(new Date(settings.alarm.time).getHours()), 
+            a.setMinutes(new Date(settings.alarm.time).getMinutes()), delete settings.alarm.snoozeTime), 
+            settings.alarm.snoozeTime || (settings.alarm.time = a.getTime()), 
+            alarmTimeout = setTimeout(function a()
+            {
+                if (Pip.sleeping == "BUSY") return setTimeout(a, 1e4);
+                settings.alarm.repeat || (settings.alarm.enabled = !1);
+                let b = Pip.sleeping;
+                b ? wakeFromSleep(showAlarm) : showAlarm(), console.log("ALARM!")
+            }, a.getTime() - b.getTime()), console.log(\`Alarm set to \${a} (\${((a.getTime()-b.getTime())/60/6e4).toFixed(3)} hours away)\`)
+        }
     }`
     }
 };
