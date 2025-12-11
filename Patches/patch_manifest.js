@@ -84,6 +84,12 @@ const PATCH_MANIFEST = {
         file: _BASE_PATH + "Patches/CustomRadioPatch.js"
     },
 	
+    "AlarmPatch": {
+        name: "Alarm Patch",
+        description: "Adds ALARM menu to DATA tab. Supports custom radio stations as alarm sounds.",
+        file: _BASE_PATH + "Patches/AlarmPatch.js"
+	},
+    
 	"KPSSRenamePatch": {
         "file": _BASE_PATH + "Patches/KPSSRenamePatch.js",
         "name": "KPSS Rename",

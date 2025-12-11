@@ -1915,6 +1915,8 @@ let submenuMap = () =>
 		}
 	}
 };
+
+//AlarmPatchBegin_showAlarm	
 let showAlarm = o =>
 {
 	Pip.removeSubmenu && Pip.removeSubmenu(), delete Pip.removeSubmenu, Pip.remove && Pip.remove(), delete Pip.remove;
@@ -1948,16 +1950,15 @@ let showAlarm = o =>
 		}), b = ++b % 3), bC.flip()
 	}, 50);
 	let a;
-
 	function c()
 	{
 		a && clearTimeout(a), a = undefined, Pip.audioStop(), Pip.videoStop(), configureAlarm(), showMainMenu()
 	}
-
 	function m(a)
 	{
 		a == 0 ? (delete settings.alarm.snoozeTime, saveSettings(), c()) : (Pip.clockVertical = !Pip.clockVertical, bC.clear(1).flip(), tm0 = null)
 	}
+
 	a = setTimeout(c, 6e5), Pip.on("knob1", m), Pip.on("knob2", c);
 
 	function n()
@@ -1972,11 +1973,14 @@ let showAlarm = o =>
 	d >= settings.alarm.soundFiles.length ? setTimeout(a =>
 	{
 		rd.enable(!0)
-	}, 1e3) : (o && console.log("Playing alarm sound file: " + settings.alarm.soundFiles[d]), Pip.audioStart(`ALARM/${settings.alarm.soundFiles[d]}`,
+	}, 1e3) : (o && console.log("Playing alarm sound file: " + settings.alarm.soundFiles[d]),
+	Pip.audioStart(`ALARM/${settings.alarm.soundFiles[d]}`,
+
 	{
 		repeat: !0
 	})), g.clear(), bH.flip(), bF.flip(), Pip.brightness = 20, Pip.fadeOn()
 };
+//AlarmPatchEnd_showAlarm
 let submenuInvAttach = () =>
 {
 	let a = 1;
@@ -2437,11 +2441,14 @@ let submenuApps = () =>
 };
 let submenuSetAlarm = () =>
 {
+	//AlarmPatchInsert_CustomRadio
 	var b, a = {
+		//AlarmPatchInsert_TriggerAlarm
 		"Set alarm time": function()
 		{
 			Pip.removeSubmenu(), delete Pip.removeSubmenu, submenuSetAlarmTime()
 		},
+		//AlarmPatchBegin_AddStations
 		"Alarm sound":
 		{
 			value: settings.alarm.soundIndex,
@@ -2457,6 +2464,7 @@ let submenuSetAlarm = () =>
 				}, 5e3)
 			}
 		},
+		//AlarmPatchEnd_AddStations
 		"Alarm on/off":
 		{
 			value: settings.alarm.enabled,
@@ -2524,10 +2532,12 @@ let submenuMaintenance = () =>
 				settings.clock12hr = a, drawFooter(), saveSettings(), console.log("12/24 hour display set to", settings.clock12hr ? "12 hr" : "24 hr")
 			}
 		},
+		//AlarmPatchBegin_removeOldAlarm
 		"Set alarm": function()
 		{
 			Pip.removeSubmenu(), submenuSetAlarm()
 		},
+		//AlarmPatchEnd_removeOldAlarm
 		"Display timeout":
 		{
 			value: settings.idleTimeout ? Math.round(settings.idleTimeout / 6e4) : 31,
@@ -2980,6 +2990,7 @@ E.showMenu = function(g)
 	submenu:
 	{
 		CLOCK: submenuClock,
+		//AlarmPatchInsert_Menu
 		STATS: submenuStats,
 		MAINTENANCE: submenuMaintenance
 	}
