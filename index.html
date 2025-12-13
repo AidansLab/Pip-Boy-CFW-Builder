@@ -1,5 +1,6 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -20,36 +21,49 @@
             color: #00ff41;
             padding: 20px;
             min-height: 100vh;
-            background-image: 
-                repeating-linear-gradient(
-                    0deg,
+            background-image:
+                repeating-linear-gradient(0deg,
                     rgba(0, 255, 65, 0.03) 0px,
                     transparent 1px,
                     transparent 2px,
-                    rgba(0, 255, 65, 0.03) 3px
-                );
+                    rgba(0, 255, 65, 0.03) 3px);
             animation: scanlines 8s linear infinite;
         }
 
         @keyframes scanlines {
-            0% { background-position: 0 0; }
-            100% { background-position: 0 100%; }
+            0% {
+                background-position: 0 0;
+            }
+
+            100% {
+                background-position: 0 100%;
+            }
         }
 
         @keyframes flicker {
-            0%, 100% { opacity: 1; }
-            50% { opacity: 0.97; }
+
+            0%,
+            100% {
+                opacity: 1;
+            }
+
+            50% {
+                opacity: 0.97;
+            }
         }
 
         @keyframes glow {
-            0%, 100% { 
-                text-shadow: 
+
+            0%,
+            100% {
+                text-shadow:
                     0 0 5px #00ff41,
                     0 0 10px #00ff41,
                     0 0 20px #00ff41;
             }
-            50% { 
-                text-shadow: 
+
+            50% {
+                text-shadow:
                     0 0 2px #00ff41,
                     0 0 5px #00ff41,
                     0 0 10px #00ff41;
@@ -62,7 +76,7 @@
             background: rgba(0, 20, 0, 0.9);
             padding: 30px;
             border: 3px solid #00ff41;
-            box-shadow: 
+            box-shadow:
                 inset 0 0 30px rgba(0, 255, 65, 0.1),
                 0 0 30px rgba(0, 255, 65, 0.3);
             position: relative;
@@ -76,14 +90,12 @@
             left: 0;
             right: 0;
             bottom: 0;
-            background: 
-                repeating-linear-gradient(
-                    90deg,
+            background:
+                repeating-linear-gradient(90deg,
                     rgba(0, 255, 65, 0.03) 0px,
                     transparent 2px,
                     transparent 4px,
-                    rgba(0, 255, 65, 0.03) 6px
-                );
+                    rgba(0, 255, 65, 0.03) 6px);
             pointer-events: none;
         }
 
@@ -131,7 +143,8 @@
             padding-left: 25px;
         }
 
-        select, button {
+        select,
+        button {
             font-family: 'Share Tech Mono', monospace;
             background: #001a00;
             color: #00ff41;
@@ -149,9 +162,10 @@
             background: #001a00;
         }
 
-        select:hover, select:focus {
+        select:hover,
+        select:focus {
             background: rgba(0, 255, 65, 0.1);
-            box-shadow: 
+            box-shadow:
                 inset 0 0 10px rgba(0, 255, 65, 0.2),
                 0 0 10px rgba(0, 255, 65, 0.3);
             outline: none;
@@ -170,7 +184,7 @@
 
         button:not(:disabled):hover {
             background: rgba(0, 255, 65, 0.2);
-            box-shadow: 
+            box-shadow:
                 inset 0 0 20px rgba(0, 255, 65, 0.3),
                 0 0 20px rgba(0, 255, 65, 0.5);
         }
@@ -278,7 +292,9 @@
             opacity: 0.8;
         }
 
-        #write-sd-button, #write-flash-button {
+        #write-sd-button,
+        #write-flash-button,
+        #install-from-sd-button {
             padding: 20px 30px !important;
             font-size: 1.2em !important;
             font-weight: bold;
@@ -288,7 +304,7 @@
 
         #download-link:hover {
             background: rgba(0, 255, 65, 0.15);
-            box-shadow: 
+            box-shadow:
                 inset 0 0 10px rgba(0, 255, 65, 0.2),
                 0 0 10px rgba(0, 255, 65, 0.3);
             opacity: 1;
@@ -309,8 +325,16 @@
         }
 
         @keyframes blink {
-            0%, 50% { opacity: 1; }
-            51%, 100% { opacity: 0; }
+
+            0%,
+            50% {
+                opacity: 1;
+            }
+
+            51%,
+            100% {
+                opacity: 0;
+            }
         }
 
         .corner-bracket {
@@ -456,6 +480,7 @@
         }
     </style>
 </head>
+
 <body>
     <div class="container">
         <div class="corner-bracket tl"></div>
@@ -490,43 +515,54 @@
                 </select>
                 <p id="fw-loading-status" style="display: none;">LOADING FILE<span class="blink">█</span></p>
             </div>
-    
+
             <div class="step">
                 <h3>█ Step 2: Select Patches to Apply</h3>
                 <div id="patch-list">
                     <p>LOADING PATCHES<span class="blink">█</span></p>
                 </div>
             </div>
-    
+
             <div class="step">
                 <h3>█ Step 3: Generate Patched File</h3>
                 <button id="patch-button" disabled>SELECT BASE FIRMWARE FIRST</button>
             </div>
 
-            <div style="display: flex; gap: 10px;">
-                <button id="write-sd-button" disabled style="flex: 1;">█ WRITE TO SD CARD █</button>
-                <button id="write-flash-button" disabled style="flex: 1;">█ WRITE TO FLASH █</button>
+            <div class="step">
+                <h3>█ Step 4: Write</h3>
+                <p>Write to Flash is always recommended. Writing from SD card to Flash restores the firmware from your
+                    SD card. Writing to SD card overwrites the stock firmware on your SD
+                    card.</p>
+                <div style="display: flex; gap: 10px;">
+                    <button id="write-flash-button" disabled style="flex: 1;">█ WRITE TO FLASH █</button>
+                </div>
+                <div style="display: flex; gap: 10px;">
+                    <button id="install-from-sd-button" disabled style="flex: 1;">█ WRITE FROM SD CARD TO FLASH
+                        █</button>
+                </div>
+                <div style="display: flex; gap: 10px;">
+                    <button id="write-sd-button" disabled style="flex: 1;">█ WRITE TO SD CARD █</button>
+                </div>
             </div>
-
-            <button id="install-from-sd-button" style="width: 100%; margin-top: 10px;">█ INSTALL FROM SD TO FLASH █</button>
-
-            <a id="download-link" href="#" download="FW.js_patched.js">
-                DOWNLOAD PATCHED FILE
-            </a>
         </div>
 
-        <div id="untokenize" class="tab-content">
-            <h1>JavaScript Preview</h1>
+        <a id="download-link" href="#" download="FW.js_patched.js">
+            DOWNLOAD PATCHED FILE
+        </a>
+    </div>
 
-            <div class="controls">
-                <button id="untokenizeUploadBtn" aria-pressed="false">Upload Code</button>
-                <button id="copyBtn" disabled>Copy</button>
-                <button id="saveBtn" disabled>Save...</button>
-                <div class="muted" id="status" aria-live="polite"></div>
-            </div>
-        
-            <pre><code id="codeBlock" class="language-javascript" tabindex="0" aria-label="Preformatted JavaScript code"></code></pre>
+    <div id="untokenize" class="tab-content">
+        <h1>JavaScript Preview</h1>
+
+        <div class="controls">
+            <button id="untokenizeUploadBtn" aria-pressed="false">Upload Code</button>
+            <button id="copyBtn" disabled>Copy</button>
+            <button id="saveBtn" disabled>Save...</button>
+            <div class="muted" id="status" aria-live="polite"></div>
         </div>
+
+        <pre><code id="codeBlock" class="language-javascript" tabindex="0" aria-label="Preformatted JavaScript code"></code></pre>
+    </div>
     </div>
 
     <script> window.Patches = {}; </script>
@@ -553,4 +589,5 @@
     <script src="untokenize.js"></script>
     <script src="ui.js"></script>
 </body>
+
 </html>

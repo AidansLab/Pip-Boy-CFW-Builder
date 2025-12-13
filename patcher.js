@@ -1339,7 +1339,7 @@ document.addEventListener('DOMContentLoaded', () => {
             fwSelect.innerHTML = '<option value="">-- CONNECT TO PIP-BOY FIRST --</option>';
 
             setTimeout(() => {
-                installButton.textContent = 'INSTALL FROM SD TO FLASH';
+                installButton.textContent = 'WRITE FROM SD CARD TO FLASH';
                 installButton.disabled = false;
                 alert('Installation triggered! The device is rebooting.\n\nPlease reconnect to perform additional operations.');
             }, 3000);
@@ -1349,7 +1349,7 @@ document.addEventListener('DOMContentLoaded', () => {
             alert(`Failed to install from SD: ${error.message}`);
 
             setTimeout(() => {
-                installButton.textContent = '█ INSTALL FROM SD TO FLASH █';
+                installButton.textContent = '█ WRITE FROM SD CARD TO FLASH █';
                 installButton.disabled = false;
             }, 3000);
         }
