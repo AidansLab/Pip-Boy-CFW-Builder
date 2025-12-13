@@ -2,26 +2,26 @@ document.addEventListener('DOMContentLoaded', () => {
     // Detect base path for resources - defaults to empty for standalone,
     // or uses CFW_BUILDER_BASE_PATH if embedded (e.g., in pip-terminal)
     const basePath = (typeof window !== 'undefined' && window.CFW_BUILDER_BASE_PATH) ? window.CFW_BUILDER_BASE_PATH : '';
-    
+
     // Initialize window.Patches object if it doesn't exist
     if (typeof window.Patches === 'undefined') {
         window.Patches = {};
     }
-    
+
     // Initialize Espruino Core modules that are needed
     if (!Espruino.Core.Notifications) {
         Espruino.Core.Notifications = {
-            success: function(e) { console.log('✓', e); },
-            error: function(e) { console.error('✗', e); },
-            warning: function(e) { console.warn('⚠', e); },
-            info: function(e) { console.log('ℹ', e); }
+            success: function (e) { console.log('✓', e); },
+            error: function (e) { console.error('✗', e); },
+            warning: function (e) { console.warn('⚠', e); },
+            info: function (e) { console.log('ℹ', e); }
         };
     }
     if (!Espruino.Core.Status) {
         Espruino.Core.Status = {
-            setStatus: function(e, len) { console.log('Status:', e); },
-            hasProgress: function() { return false; },
-            incrementProgress: function(amt) {}
+            setStatus: function (e, len) { console.log('Status:', e); },
+            hasProgress: function () { return false; },
+            incrementProgress: function (amt) { }
         };
     }
 
@@ -68,7 +68,7 @@ document.addEventListener('DOMContentLoaded', () => {
             connectionStatus.textContent = 'Searching for ports...';
 
             // Set up data listener for any custom serial communication we might need
-            Espruino.Core.Serial.startListening(function(data) {
+            Espruino.Core.Serial.startListening(function (data) {
                 // Receive data callback - data is an ArrayBuffer
                 const uint8Array = new Uint8Array(data);
                 let str = '';
@@ -80,7 +80,7 @@ document.addEventListener('DOMContentLoaded', () => {
             });
 
             // Get available ports
-            Espruino.Core.Serial.getPorts(function(ports) {
+            Espruino.Core.Serial.getPorts(function (ports) {
                 if (!ports || ports.length === 0) {
                     connectionStatus.textContent = 'ERROR: No ports found';
                     connectionStatus.style.color = '#ff4444';
@@ -97,13 +97,13 @@ document.addEventListener('DOMContentLoaded', () => {
                 connectionStatus.textContent = 'Opening port...';
 
                 // Open the serial port using Espruino's infrastructure
-                Espruino.Core.Serial.open(selectedPort.path, function(cInfo) {
+                Espruino.Core.Serial.open(selectedPort.path, function (cInfo) {
                     // Connect callback
                     if (cInfo !== undefined && cInfo.error === undefined) {
                         console.log("Device connected:", JSON.stringify(cInfo));
                         activePort = selectedPort.path;
                         isConnected = true;
-                        
+
                         // Get version from Espruino's environment data
                         // The env.js processor will have already queried and parsed process.env
                         setTimeout(() => {
@@ -111,11 +111,11 @@ document.addEventListener('DOMContentLoaded', () => {
                             if (boardData && boardData.VERSION) {
                                 pipboyVersion = boardData.VERSION;
                                 console.log(`Retrieved version from board data: ${pipboyVersion}`);
-                                
+
                                 // Disable slow write for faster transfers over Web Serial API
                                 Espruino.Core.Serial.setSlowWrite(false, true);
                                 console.log('Disabled slow write for fast USB transfers');
-                                
+
                                 connectionStatus.textContent = `CONNECTED - VERSION: ${pipboyVersion}`;
                                 connectionStatus.style.color = '#00ff41';
                                 connectButton.textContent = 'DISCONNECT';
@@ -124,11 +124,11 @@ document.addEventListener('DOMContentLoaded', () => {
                             } else {
                                 // Fallback if board data not available yet
                                 pipboyVersion = 'unknown';
-                                
+
                                 // Disable slow write for faster transfers over Web Serial API
                                 Espruino.Core.Serial.setSlowWrite(false, true);
                                 console.log('Disabled slow write for fast USB transfers');
-                                
+
                                 connectionStatus.textContent = 'CONNECTED - VERSION: unknown';
                                 connectionStatus.style.color = '#ffaa00';
                                 connectButton.textContent = 'DISCONNECT';
@@ -147,7 +147,7 @@ document.addEventListener('DOMContentLoaded', () => {
                         activePort = null;
                         isConnected = false;
                     }
-                }, function(cInfo) {
+                }, function (cInfo) {
                     // Disconnect callback
                     console.log("Disconnected:", JSON.stringify(cInfo));
                     activePort = null;
@@ -273,7 +273,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     console.log(`Successfully loaded and processed patch: ${patchKey} from ${patchInfo.file}`);
                 } else {
                     console.error(`Patch script ${patchInfo.file} loaded, but window.Patches.${patchKey} is undefined. Check the script content.`);
-                     // Display an error in the UI for this patch
+                    // Display an error in the UI for this patch
                     const errorDiv = document.createElement('div');
                     errorDiv.className = 'patch-item';
                     errorDiv.style.color = 'red';
@@ -290,14 +290,14 @@ document.addEventListener('DOMContentLoaded', () => {
             script.onerror = (event) => {
                 console.error(`Failed to load patch script file: ${patchInfo.file}`, event);
                 patchScriptsLoaded++;
-                 // Display an error in the UI for this patch
-                 const errorDiv = document.createElement('div');
-                 errorDiv.className = 'patch-item';
-                 errorDiv.style.color = 'red';
-                 errorDiv.innerHTML = `<label style="text-decoration: line-through;">${patchInfo.name}</label><p>Failed to load script file (${patchInfo.file}). Check path & console.</p>`;
-                 patchListDiv.appendChild(errorDiv);
+                // Display an error in the UI for this patch
+                const errorDiv = document.createElement('div');
+                errorDiv.className = 'patch-item';
+                errorDiv.style.color = 'red';
+                errorDiv.innerHTML = `<label style="text-decoration: line-through;">${patchInfo.name}</label><p>Failed to load script file (${patchInfo.file}). Check path & console.</p>`;
+                patchListDiv.appendChild(errorDiv);
 
-                 if (patchScriptsLoaded === totalPatches) {
+                if (patchScriptsLoaded === totalPatches) {
                     console.log(`All ${totalPatches} patch scripts processed (with errors).`);
                 }
             };
@@ -321,7 +321,7 @@ document.addEventListener('DOMContentLoaded', () => {
         checkbox.type = 'checkbox';
         checkbox.id = checkboxId;
         checkbox.dataset.patchKey = patchKey;
-        
+
         // Create Label
         const label = document.createElement('label');
         label.htmlFor = checkboxId;
@@ -385,6 +385,28 @@ document.addEventListener('DOMContentLoaded', () => {
         description.textContent = patchInfo.description;
         itemDiv.appendChild(description);
 
+        // Ensure parent is relative for absolute positioning of author
+        itemDiv.style.position = 'relative';
+
+        // --- Author Section ---
+        if (patchInfo.author || patchInfo.authors) {
+            const authorLine = document.createElement('span'); // Changed to span or p, but span might be better for absolute
+            authorLine.style.fontSize = '0.75em'; // Slightly smaller
+            authorLine.style.position = 'absolute';
+            authorLine.style.top = '5px';
+            authorLine.style.right = '10px';
+            authorLine.style.textAlign = 'right'; // align right for multiline
+            authorLine.style.whiteSpace = 'pre-line'; // allow \n to break lines
+            authorLine.style.pointerEvents = 'none'; // Prevent interfering with clicks
+
+            const authors = patchInfo.authors || patchInfo.author;
+            const authorText = Array.isArray(authors) ? authors.join(', ') : authors;
+
+            authorLine.textContent = `${authorText}`;
+            itemDiv.appendChild(authorLine);
+        }
+
+
         // Add the completed item to the list
         patchListDiv.appendChild(itemDiv);
     }
@@ -408,8 +430,8 @@ document.addEventListener('DOMContentLoaded', () => {
             const response = await fetch(selectedFile);
             if (!response.ok) {
                 // More specific error for common GitHub Pages 404
-                if(response.status === 404 && window.location.hostname.endsWith('github.io')){
-                     throw new Error(`HTTP 404: File not found. Make sure '${selectedFile}' exists in the repository and the filename/path in fw_manifest.js is correct (case-sensitive).`);
+                if (response.status === 404 && window.location.hostname.endsWith('github.io')) {
+                    throw new Error(`HTTP 404: File not found. Make sure '${selectedFile}' exists in the repository and the filename/path in fw_manifest.js is correct (case-sensitive).`);
                 } else {
                     throw new Error(`HTTP error! status: ${response.status} loading ${selectedFile}`);
                 }
@@ -417,7 +439,7 @@ document.addEventListener('DOMContentLoaded', () => {
             // Read as text using UTF-8 explicitly
             baseFileContent = await response.text();
             selectedFileName = selectedFile.replace('.js', '_patched.js'); // Update download name
-            
+
             // Extract firmware version from the selected file
             // Look for VERSION constant in the file content
             const versionMatch = baseFileContent.match(/const\s+VERSION\s*=\s*["']([0-9.]+)["']/);
@@ -430,7 +452,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 firmwareVersion = fileVersionMatch ? fileVersionMatch[1] : 'unknown';
                 console.log(`Using version from filename: ${firmwareVersion}`);
             }
-            
+
             patchButton.disabled = false; // Re-enable button
             patchButton.textContent = 'Patch File';
             console.log(`${selectedFile} loaded successfully.`);
@@ -497,12 +519,12 @@ document.addEventListener('DOMContentLoaded', () => {
                         patchedContent = applyReplacement(patchedContent, patchKey, regionName, patchData.replace[regionName]);
                     }
                 } else {
-                     console.log(` -> No valid 'replace' object found for ${patchKey}`);
+                    console.log(` -> No valid 'replace' object found for ${patchKey}`);
                 }
 
                 // Process Insertions
                 if (patchData.insert && typeof patchData.insert === 'object') {
-                     console.log(` -> Processing insertions for ${patchKey}`);
+                    console.log(` -> Processing insertions for ${patchKey}`);
                     for (const markerName in patchData.insert) {
                         const fullMarker = `//${patchKey}Insert_${markerName}`; // Construct the full marker string
 
@@ -512,13 +534,13 @@ document.addEventListener('DOMContentLoaded', () => {
                         patchedContent = applyInsertion(patchedContent, patchKey, markerName, insertionCode);
 
                         if (patchedContent.length > originalLength) {
-                             console.log(`    - Successfully inserted at ${fullMarker}`);
+                            console.log(`    - Successfully inserted at ${fullMarker}`);
                         }
                     }
                 } else {
-                     console.log(` -> No valid 'insert' object found for ${patchKey}`);
+                    console.log(` -> No valid 'insert' object found for ${patchKey}`);
                 }
-                
+
                 // Process Find/Replace Array
                 if (patchData.find && Array.isArray(patchData.find)) {
                     console.log(` -> Processing find/replace array for ${patchKey}`);
@@ -540,7 +562,7 @@ document.addEventListener('DOMContentLoaded', () => {
                                 console.warn(`    - Job for "${stringToFind}" needs text input, but none found for ${patchKey}. Skipping.`);
                                 return;
                             }
-                            
+
                             let newName = inputElement.value;
                             if (!newName || newName.trim() === '') {
                                 console.log(`    - No new name provided in text box for "${stringToFind}". Skipping.`);
@@ -549,11 +571,11 @@ document.addEventListener('DOMContentLoaded', () => {
                             // Format as a JS string literal, wrapping in quotes
                             replacementString = '"' + newName.trim().replace(/"/g, '\\"') + '"';
 
-                        } 
+                        }
                         // Check if it's a hard-coded replacement
                         else if (typeof job.replace === 'string') {
                             replacementString = job.replace;
-                        } 
+                        }
                         // If no replacement is defined, skip
                         else {
                             console.warn(`    - Job for "${stringToFind}" has no 'useInput' or 'replace' value. Skipping.`);
@@ -564,7 +586,7 @@ document.addEventListener('DOMContentLoaded', () => {
                         console.log(`    - Replacing all instances of ${stringToFind} with ${replacementString}`);
                         const findRegex = new RegExp(escapeRegExp(stringToFind), 'g');
                         const originalLength = patchedContent.length;
-                        
+
                         patchedContent = patchedContent.replace(findRegex, replacementString);
 
                         if (patchedContent.length === originalLength) {
@@ -575,11 +597,11 @@ document.addEventListener('DOMContentLoaded', () => {
                     }); // End of find.forEach
                 }
 
-                 console.log(` -> Finished patch: ${patchKey}`);
+                console.log(` -> Finished patch: ${patchKey}`);
             }); // --- END of selectedPatches.forEach ---
-			
+
             // --- Post-Patching Combination Checks ---
-			console.log("Checking for patch combinations...");
+            console.log("Checking for patch combinations...");
             // Create an array of the keys of the selected patches
             const selectedKeys = Array.from(selectedPatches).map(cb => cb.dataset.patchKey);
 
@@ -599,7 +621,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 // Use the existing applyReplacement function
                 patchedContent = applyReplacement(patchedContent, comboPatchKey, comboRegionName, comboReplacementCode);
             } else {
-                 console.log(" -> Special/Perks combination conditions not met.");
+                console.log(" -> Special/Perks combination conditions not met.");
             }
             // --- END Combination Checks ---
 
@@ -613,7 +635,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
 
         } catch (error) {
-             console.error("Error during patching loop:", error); // Log specific error
+            console.error("Error during patching loop:", error); // Log specific error
             alert(`An error occurred during patching:\n${error.message}\nCheck the console (F12) for more details.`);
             downloadLink.style.display = 'none'; // Hide link on error
         }
@@ -622,7 +644,7 @@ document.addEventListener('DOMContentLoaded', () => {
     /**
      * Creates the download link.
      */
-     function createDownloadLink(content, filename) {
+    function createDownloadLink(content, filename) {
         console.log(`Creating download Blob for ${filename}...`);
 
         // Ensure Espruino config matches requested behavior:
@@ -644,69 +666,69 @@ document.addEventListener('DOMContentLoaded', () => {
 
         // Minify the content before creating the blob
         const minifiedContent = Espruino.Plugins.Minify.preminify(content);
-        
-         // Use minified content if successful, otherwise use original
+
+        // Use minified content if successful, otherwise use original
         let finalContent = minifiedContent || content;
 
-            // If Pretokenise is available, tokenise the final content the same way
-            // EspruinoWebIDE does (use tokenise() if present and content is not
-            // already tokenised). This will make the file suitable for Espruino
-            // interpreter pretokenised uploads.
-            try {
-                if (window.Espruino && Espruino.Plugins && Espruino.Plugins.Pretokenise && typeof Espruino.Plugins.Pretokenise.tokenise === 'function') {
-                    const t = Espruino.Plugins.Pretokenise.tokenise(finalContent);
-                    if (t) {
-                        // tokenise returns the transformed code; use it
-                        finalContent = t;
-                        console.log('Pretokenise: content tokenised for download.');
-                    }
+        // If Pretokenise is available, tokenise the final content the same way
+        // EspruinoWebIDE does (use tokenise() if present and content is not
+        // already tokenised). This will make the file suitable for Espruino
+        // interpreter pretokenised uploads.
+        try {
+            if (window.Espruino && Espruino.Plugins && Espruino.Plugins.Pretokenise && typeof Espruino.Plugins.Pretokenise.tokenise === 'function') {
+                const t = Espruino.Plugins.Pretokenise.tokenise(finalContent);
+                if (t) {
+                    // tokenise returns the transformed code; use it
+                    finalContent = t;
+                    console.log('Pretokenise: content tokenised for download.');
                 }
-            } catch (e) {
-                console.warn('Pretokenise failed or unavailable; proceeding with original content.', e);
             }
+        } catch (e) {
+            console.warn('Pretokenise failed or unavailable; proceeding with original content.', e);
+        }
 
-            // Convert finalContent to ANSI (single-byte) bytes and create a Blob from those bytes.
-            // We map each JS 16-bit code unit to a single byte by taking the low 8 bits.
-            // This matches Espruino's expectation for pretokenised binary-like files.
-            try {
-                const buf = new Uint8Array(finalContent.length);
-                for (let i = 0; i < finalContent.length; i++) {
-                    const code = finalContent.charCodeAt(i);
-                    buf[i] = code & 0xFF; // ANSI single-byte mapping
-                }
-                var blob = new Blob([buf], { type: 'text/javascript' });
-            } catch (e) {
-                console.warn('Failed to create ANSI blob, falling back to UTF-8 blob', e);
-                var blob = new Blob([finalContent], { type: 'text/javascript;charset=utf-8' });
+        // Convert finalContent to ANSI (single-byte) bytes and create a Blob from those bytes.
+        // We map each JS 16-bit code unit to a single byte by taking the low 8 bits.
+        // This matches Espruino's expectation for pretokenised binary-like files.
+        try {
+            const buf = new Uint8Array(finalContent.length);
+            for (let i = 0; i < finalContent.length; i++) {
+                const code = finalContent.charCodeAt(i);
+                buf[i] = code & 0xFF; // ANSI single-byte mapping
             }
+            var blob = new Blob([buf], { type: 'text/javascript' });
+        } catch (e) {
+            console.warn('Failed to create ANSI blob, falling back to UTF-8 blob', e);
+            var blob = new Blob([finalContent], { type: 'text/javascript;charset=utf-8' });
+        }
         const url = URL.createObjectURL(blob);
 
         downloadLink.href = url;
         downloadLink.download = filename; // Use the provided filename
         downloadLink.style.display = 'block';
         console.log("Download link created.");
-        
+
         // Store the generated firmware and enable the Write buttons
         generatedFirmware = finalContent;
         writeSDButton.disabled = false;
         writeSDButton.textContent = 'WRITE TO SD CARD';
         writeFlashButton.disabled = false;
         writeFlashButton.textContent = 'WRITE TO FLASH';
-        
+
         alert('File ready! Click the download link below, write to SD card, or write to flash.');
-     }
+    }
 
     // --- Function to append epoch digits to VERSION ---
     function appendEpochToVersion(content) {
         const epochLast3 = Math.floor(Date.now() / 1000) % 1000;
         const versionRegex = /(const\s+VERSION\s*=\s*["'])([0-9.]+)(["'])/g;
-        
+
         const updatedContent = content.replace(versionRegex, (match, prefix, version, suffix) => {
             const newVersion = `${version}.${epochLast3}`;
             console.log(`Updated VERSION from ${version} to ${newVersion}`);
             return `${prefix}${newVersion}${suffix}`;
         });
-        
+
         return updatedContent;
     }
 
@@ -714,7 +736,7 @@ document.addEventListener('DOMContentLoaded', () => {
     async function readDeviceResponse(timeoutMs = 2000) {
         const startTime = Date.now();
         const initialBufferLength = serialDataBuffer.length;
-        
+
         // Wait for new data to arrive in the buffer
         while (Date.now() - startTime < timeoutMs) {
             // Check if we have a complete response (ends with prompt)
@@ -730,7 +752,7 @@ document.addEventListener('DOMContentLoaded', () => {
             // Wait a bit before checking again
             await new Promise(resolve => setTimeout(resolve, 50));
         }
-        
+
         const response = serialDataBuffer.substring(initialBufferLength);
         return response;
     }
@@ -739,16 +761,16 @@ document.addEventListener('DOMContentLoaded', () => {
     async function drainReadBuffer(timeoutMs = 1000) {
         const startTime = Date.now();
         let drained = '';
-        
+
         try {
             while (Date.now() - startTime < timeoutMs) {
                 const { value, done } = await Promise.race([
                     activeReader.read(),
-                    new Promise((_, reject) => 
+                    new Promise((_, reject) =>
                         setTimeout(() => reject(new Error('timeout')), 100)
                     )
                 ]);
-                
+
                 if (done) break;
                 if (value) {
                     drained += value;
@@ -757,7 +779,7 @@ document.addEventListener('DOMContentLoaded', () => {
         } catch (e) {
             // Timeout - buffer is drained
         }
-        
+
         if (drained) {
             console.log('Drained buffer:', drained);
         }
@@ -800,18 +822,18 @@ document.addEventListener('DOMContentLoaded', () => {
 
             // Check what files already exist in the target directory
             console.log(`Checking existing files in ${targetPath}...`);
-            
+
             // Clear buffer before sending command
             serialDataBuffer = '';
-            
+
             await writeCommand(`\x10print(JSON.stringify(require('fs').readdir(${JSON.stringify(targetPath)}) || []));\n`);
-            
+
             // Wait for response to arrive
             await delay(1000);
-            
+
             const readdirResponse = serialDataBuffer;
             console.log('Directory listing response:', readdirResponse);
-            
+
             let existingFiles = [];
             try {
                 // Try to parse the JSON array from the response
@@ -830,19 +852,19 @@ document.addEventListener('DOMContentLoaded', () => {
 
             // Filter out files that already exist
             const filesToUpload = files.filter(fileName => !existingFiles.includes(fileName));
-            
+
             if (filesToUpload.length === 0) {
                 console.log(`All files already exist for ${patch.name}, skipping upload.`);
                 continue;
             }
-            
+
             console.log(`Uploading ${filesToUpload.length} new file(s) to ${targetPath}...`);
             console.log(`Skipping ${files.length - filesToUpload.length} existing file(s).`);
-            
+
             for (let fileIndex = 0; fileIndex < filesToUpload.length; fileIndex++) {
                 const fileName = filesToUpload[fileIndex];
                 const filePath = `${sourceFolder}/${fileName}`;
-                
+
                 // Fetch the file from the local resources folder
                 try {
                     const response = await fetch(filePath);
@@ -850,58 +872,58 @@ document.addEventListener('DOMContentLoaded', () => {
                         console.warn(`Could not fetch ${filePath}, skipping...`);
                         continue;
                     }
-                    
+
                     const arrayBuffer = await response.arrayBuffer();
                     const bytes = new Uint8Array(arrayBuffer);
                     const targetFile = `${targetPath}/${fileName}`;
-                    
+
                     console.log(`Uploading ${fileName} (${bytes.length} bytes)...`);
-                    
+
                     // Open file for writing on SD card using E.openFile
                     await writeCommand(`\x10var f=E.openFile(${JSON.stringify(targetFile)},"w");\n`, false);
                     await delay(100);
-                    
+
                     // Write file in chunks
                     const chunkSize = 256;
                     const totalChunks = Math.ceil(bytes.length / chunkSize);
-                    
+
                     for (let i = 0; i < bytes.length; i += chunkSize) {
                         const chunk = bytes.slice(i, Math.min(i + chunkSize, bytes.length));
-                        
+
                         // Convert chunk to array of byte values for transmission
                         const byteArray = Array.from(chunk);
-                        
+
                         // Update progress on screen and in console
                         const chunkNum = Math.floor(i / chunkSize) + 1;
-                        
+
                         // Update screen every few chunks to reduce overhead
                         if (chunkNum % 5 === 1 || chunkNum === totalChunks) {
                             await writeCommand(`\x10g.clearRect(0,210,478,240);g.drawString("File ${fileIndex + 1}/${filesToUpload.length}: ${fileName}",240,215,true);g.drawString("Chunk ${chunkNum}/${totalChunks}",240,235,true);\n`, false);
                             await delay(30);
                         }
-                        
+
                         // Write chunk using file handle - convert byte array to string on device
                         const cmd = `\x10f.write(String.fromCharCode.apply(null,${JSON.stringify(byteArray)}));\n`;
                         await writeCommand(cmd, false);
                         await delay(30);
                         console.log(`Wrote chunk ${chunkNum}/${totalChunks}...`);
                     }
-                    
+
                     // Close the file
                     await writeCommand('\x10f.close();\n', false);
                     await delay(100);
-                    
+
                     console.log(`Uploaded ${fileName}`);
-                    
+
                 } catch (error) {
                     console.error(`Error uploading ${fileName}:`, error);
                     // Don't stop on error, continue with next file
                 }
             }
-            
+
             console.log(`Completed resources for ${patch.name}`);
         }
-        
+
         console.log('All resource uploads complete.');
         return;
     }
@@ -956,7 +978,7 @@ document.addEventListener('DOMContentLoaded', () => {
             writeSDButton.textContent = 'CHECKING SD...';
             await writeCommand('\x10g.clearRect(0,140,478,319);g.drawString("Checking SD card...",240,160,true);\n');
             await delay(100);
-            
+
             // Try to read Storage to ensure it's available
             await writeCommand('\x10try{var l=require("Storage").list();g.drawString("SD Ready: "+l.length+" files",240,180,true);}catch(e){g.drawString("SD Error: "+e,240,180,true);}\n');
             await delay(500);
@@ -974,18 +996,18 @@ document.addEventListener('DOMContentLoaded', () => {
             writeSDButton.textContent = 'WRITING FW.JS...';
             await writeCommand('\x10g.clearRect(0,140,478,319);g.drawString("Opening file for write...",240,160,true);\n');
             await delay(100);
-            
+
             // Open file for writing
             await writeCommand('\x10var fw=E.openFile("FW.js","w");\n');
             await delay(300);
-            
+
             const CHUNK_SIZE = 512; // Smaller chunks for more reliable writing
             const totalChunks = Math.ceil(generatedFirmware.length / CHUNK_SIZE);
-            
+
             for (let i = 0; i < generatedFirmware.length; i += CHUNK_SIZE) {
                 const chunk = generatedFirmware.substr(i, CHUNK_SIZE);
                 const chunkNum = Math.floor(i / CHUNK_SIZE) + 1;
-                
+
                 // Update progress
                 writeSDButton.textContent = `WRITING ${chunkNum}/${totalChunks}`;
                 if (chunkNum % 10 === 1 || chunkNum === totalChunks) {
@@ -993,18 +1015,18 @@ document.addEventListener('DOMContentLoaded', () => {
                     await writeCommand(`\x10g.clearRect(0,140,478,319);g.drawString("Writing ${chunkNum}/${totalChunks}",240,160,true);\n`, false);
                     await delay(50);
                 }
-                
+
                 // Write chunk using file handle with error handling (no logging)
                 // Convert to base64 to safely transmit binary data
                 const cmd = `\x10try{fw.write(atob(${JSON.stringify(btoa(chunk))}));}catch(e){g.drawString("Err: "+e.message,240,280,true);}\n`;
                 await writeCommand(cmd, false);
-                
+
                 // Small delay between chunks
                 await delay(20);
-                
+
                 console.log(`Wrote chunk ${chunkNum}/${totalChunks}`);
             }
-            
+
             // Close the file
             console.log('Closing file...');
             writeSDButton.textContent = 'FINALIZING...';
@@ -1018,16 +1040,16 @@ document.addEventListener('DOMContentLoaded', () => {
             writeSDButton.textContent = 'WRITING VERSION...';
             await writeCommand('\x10g.clearRect(0,140,478,319);g.drawString("Writing VERSION file...",240,160,true);\n');
             await delay(100);
-            
+
             // Delete old VERSION file if it exists
             await writeCommand('\x10try{require("fs").unlink("VERSION");}catch(e){}\n');
             await delay(300);
-            
+
             // Create version string with epoch suffix
             const epochLast3 = Math.floor(Date.now() / 1000) % 1000;
             const versionString = firmwareVersion ? `${firmwareVersion}.${epochLast3}` : `unknown.${epochLast3}`;
             console.log(`Writing VERSION file with content: ${versionString}`);
-            
+
             // Write VERSION file using E.openFile
             await writeCommand('\x10var vf=E.openFile("VERSION","w");\n');
             await delay(300);
@@ -1040,16 +1062,16 @@ document.addEventListener('DOMContentLoaded', () => {
             writeSDButton.textContent = 'COMPLETING...';
 
             await drainReadBuffer(300);
-            
+
             // Upload resources for enabled patches
             writeSDButton.textContent = 'UPLOADING RESOURCES...';
             await writeCommand('\x10g.clear();\n');
             await delay(100);
             await writeCommand('\x10g.drawString("Uploading Resources...",240,160,true);\n');
             await delay(100);
-            
+
             await uploadResources(writeCommand, delay);
-            
+
             // Display success message on Pip-Boy
             await writeCommand('\x10g.clear();\n');
             await delay(100);
@@ -1077,7 +1099,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
             writeSDButton.textContent = 'WRITE COMPLETE!';
             alert('Custom firmware successfully written to SD card! The Pip-Boy has rebooted.\n\nPlease reconnect to perform additional operations.');
-            
+
             setTimeout(() => {
                 writeSDButton.textContent = 'WRITE TO SD CARD';
                 writeSDButton.disabled = false;
@@ -1087,7 +1109,7 @@ document.addEventListener('DOMContentLoaded', () => {
             console.error('Error writing to SD card:', error);
             alert(`Failed to write to SD card:\n${error.message}`);
             writeSDButton.textContent = 'WRITE FAILED';
-            
+
             setTimeout(() => {
                 writeSDButton.textContent = 'WRITE TO SD CARD';
                 writeSDButton.disabled = false;
@@ -1157,16 +1179,16 @@ document.addEventListener('DOMContentLoaded', () => {
             console.log('Writing firmware to flash...');
             writeFlashButton.textContent = 'WRITING TO FLASH...';
             await delay(100);
-            
+
             const CHUNK_SIZE = 1024;
             const fileName = '.bootcde';
             const totalChunks = Math.ceil(generatedFirmware.length / CHUNK_SIZE);
-            
+
             for (let i = 0; i < generatedFirmware.length; i += CHUNK_SIZE) {
                 const chunk = generatedFirmware.substr(i, CHUNK_SIZE);
                 const chunkNum = Math.floor(i / CHUNK_SIZE) + 1;
                 const sizeParam = (i === 0) ? `,${generatedFirmware.length}` : '';
-                
+
                 // Update progress
                 writeFlashButton.textContent = `WRITING ${chunkNum}/${totalChunks}`;
                 if (chunkNum % 10 === 1 || chunkNum === totalChunks) {
@@ -1174,14 +1196,14 @@ document.addEventListener('DOMContentLoaded', () => {
                     await writeCommand(`\x10g.clearRect(0,140,478,319);g.drawString("Writing ${chunkNum}/${totalChunks}",240,160,true);\n`, false);
                     await delay(50);
                 }
-                
+
                 // Write chunk to Storage with error handling (no logging)
                 const cmd = `\x10try{require("Storage").write(${JSON.stringify(fileName)},atob(${JSON.stringify(btoa(chunk))}),${i}${sizeParam});}catch(e){g.drawString("Error: "+e,240,300,true);}\n`;
                 await writeCommand(cmd, false);
-                
+
                 // Delay between chunks to avoid overwhelming the device
                 await delay(100);
-                
+
                 console.log(`Wrote chunk ${chunkNum}/${totalChunks} to flash`);
             }
 
@@ -1189,16 +1211,16 @@ document.addEventListener('DOMContentLoaded', () => {
             writeFlashButton.textContent = 'COMPLETING...';
 
             await drainReadBuffer(300);
-            
+
             // Upload resources for enabled patches
             writeFlashButton.textContent = 'UPLOADING RESOURCES...';
             await writeCommand('\x10g.clear();\n');
             await delay(100);
             await writeCommand('\x10g.drawString("Uploading Resources...",240,160,true);\n');
             await delay(100);
-            
+
             await uploadResources(writeCommand, delay);
-            
+
             // Display success message on Pip-Boy
             await writeCommand('\x10g.clear();\n');
             await delay(100);
@@ -1224,7 +1246,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
             writeFlashButton.textContent = 'WRITE COMPLETE!';
             alert('Custom firmware successfully written to flash (.bootcde)! The Pip-Boy has rebooted.\n\nPlease reconnect to perform additional operations.');
-            
+
             setTimeout(() => {
                 writeFlashButton.textContent = 'WRITE TO FLASH';
                 writeFlashButton.disabled = false;
@@ -1234,7 +1256,7 @@ document.addEventListener('DOMContentLoaded', () => {
             console.error('Error writing to flash:', error);
             alert(`Failed to write to flash:\n${error.message}`);
             writeFlashButton.textContent = 'WRITE FAILED';
-            
+
             setTimeout(() => {
                 writeFlashButton.textContent = 'WRITE TO FLASH';
                 writeFlashButton.disabled = false;
@@ -1250,7 +1272,7 @@ document.addEventListener('DOMContentLoaded', () => {
     // --- Install from SD to Flash Function ---
     async function installFromSD() {
         const installButton = document.getElementById('install-from-sd-button');
-        
+
         if (!isConnected || !activePort) {
             alert('Please connect to Pip-Boy first using the Connect button!');
             return;
@@ -1291,11 +1313,11 @@ document.addEventListener('DOMContentLoaded', () => {
 
             // Call load() which will check VERSION mismatch and install FW.js from SD
             await writeCommand('\x10load();\n');
-            
+
             console.log('Firmware installation triggered. Device will load from SD card.');
             installButton.textContent = 'INSTALLATION TRIGGERED';
 
-			
+
             // Wait a moment for the command to be processed, then close the connection
             await new Promise(resolve => setTimeout(resolve, 500));
 
@@ -1325,7 +1347,7 @@ document.addEventListener('DOMContentLoaded', () => {
         } catch (error) {
             console.error('Error during SD installation:', error);
             alert(`Failed to install from SD: ${error.message}`);
-            
+
             setTimeout(() => {
                 installButton.textContent = '█ INSTALL FROM SD TO FLASH █';
                 installButton.disabled = false;
@@ -1348,8 +1370,8 @@ document.addEventListener('DOMContentLoaded', () => {
 
         // Ensure replacementCode is a string
         if (typeof replacementCode !== 'string') {
-             console.warn(`Replacement code for "${regionName}" in patch "${patchKey}" is not a string. Skipping.`);
-             return content;
+            console.warn(`Replacement code for "${regionName}" in patch "${patchKey}" is not a string. Skipping.`);
+            return content;
         }
 
         // --- Find the first valid start marker ---
@@ -1410,10 +1432,10 @@ document.addEventListener('DOMContentLoaded', () => {
         const markerSlashes = `//${patchKey}Insert_${markerName}`;
         const markerStars = `/*${patchKey}Insert_${markerName}*/`; // New star-based marker
 
-         // Ensure insertionCode is a string
+        // Ensure insertionCode is a string
         if (typeof insertionCode !== 'string') {
-             console.warn(`    - Insertion code for "${markerName}" in patch "${patchKey}" is not a string. Skipping.`);
-             return content; // Return original content unchanged
+            console.warn(`    - Insertion code for "${markerName}" in patch "${patchKey}" is not a string. Skipping.`);
+            return content; // Return original content unchanged
         }
 
         // Create regex parts for both
@@ -1422,24 +1444,24 @@ document.addEventListener('DOMContentLoaded', () => {
 
         // Combine them with an OR |
         const regex = new RegExp(`(${regexSlashes})|(${regexStars})`, 'g');
-        
+
         let found = false;
 
         // Ensure newlines for clarity. Place new code ABOVE marker.
         const cleanInsertionCode = insertionCode.trim(); // Remove leading/trailing whitespace
 
         const newContent = content.replace(regex, (match) => {
-             found = true;
-             // 'match' will be the exact marker that was found (slashes or stars)
-             // We add the inserted code, a newline, and then add the *original marker* back.
-             const replacement = `\n${cleanInsertionCode}\n${match}`; 
-             return replacement;
+            found = true;
+            // 'match' will be the exact marker that was found (slashes or stars)
+            // We add the inserted code, a newline, and then add the *original marker* back.
+            const replacement = `\n${cleanInsertionCode}\n${match}`;
+            return replacement;
         });
 
         if (!found) {
-             // Update warning to show all markers it looked for
-             console.warn(`    - Insertion marker "${markerSlashes}" OR "${markerStars}" not found in file. Skipping marker "${markerName}".`);
-             return content; // Return original content if marker wasn't found
+            // Update warning to show all markers it looked for
+            console.warn(`    - Insertion marker "${markerSlashes}" OR "${markerStars}" not found in file. Skipping marker "${markerName}".`);
+            return content; // Return original content if marker wasn't found
         }
 
         return newContent; // Return the modified content

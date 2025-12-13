@@ -8,12 +8,13 @@ const _BASE_PATH = (typeof window !== 'undefined' && window.CFW_BUILDER_BASE_PAT
 const PATCH_MANIFEST = {
     // The key (e.g., "InvPatch") MUST match the object key in the patch file
     // and the marker name in FW.js.
-    
+
     "InvPatch": {
         name: "Inventory Patch",
         description: "Adds items menu to the inventory tab.",
+        author: "Author: Aidan's Lab",
         file: _BASE_PATH + "Patches/InvPatch.js",
-		resources: {
+        resources: {
             sourceFolder: _BASE_PATH + "resources/DATA",
             targetPath: "DATA",
             files: [
@@ -25,12 +26,14 @@ const PATCH_MANIFEST = {
     "IconMod": {
         name: "Icon Mod",
         description: "Removes cog and holotape icons.",
+        author: "Ported by: Aidan's Lab\nBased on Pip UI+ by: Mercy, Cody Tolene, Athene Allen",
         file: _BASE_PATH + "Patches/IconMod.js"
     },
 
     "PerksPatch": {
         name: "Perks System",
         description: "Adds the perks system.",
+        author: "Ported by: Aidan's Lab\nBased on Pip UI+ by: Mercy, Cody Tolene, Athene Allen",
         file: _BASE_PATH + "Patches/PerksPatch.js",
         resources: {
             sourceFolder: _BASE_PATH + "resources/PERKS",
@@ -57,10 +60,11 @@ const PATCH_MANIFEST = {
             ]
         }
     },
-	
-	"SpecialPatch": {
+
+    "SpecialPatch": {
         name: "SPECIAL System",
         description: "Adds the SPECIAL system.",
+        author: "Ported by: Aidan's Lab\nBased on Pip UI+ by: Mercy, Cody Tolene, Athene Allen",
         file: _BASE_PATH + "Patches/SpecialPatch.js",
         resources: {
             sourceFolder: _BASE_PATH + "resources/SPECIAL",
@@ -71,38 +75,43 @@ const PATCH_MANIFEST = {
             ]
         }
     },
-	
-	"MaintenancePatch": {
+
+    "MaintenancePatch": {
         name: "Maintenance Features",
         description: "Adds advanced maintenance features like RAM Scan and theme palette customization (theme palette customization not yet implemented).",
+        author: "Ported by: Aidan's Lab\nBased on Pip UI+ by: Mercy, Cody Tolene, Athene Allen",
         file: _BASE_PATH + "Patches/MaintenancePatch.js"
     },
-	
-	"CustomRadioPatch": {
+
+    "CustomRadioPatch": {
         name: "Custom Radio Patch",
         description: "Adds custom radios based on folders in the radio folder.",
+        author: "Author: Aidan's Lab",
         file: _BASE_PATH + "Patches/CustomRadioPatch.js"
     },
-	
+
     "AlarmPatch": {
         name: "Alarm Patch",
         description: "Adds ALARM menu to DATA tab. Supports custom radio stations as alarm sounds.",
+        author: "Author: Dougie",
         file: _BASE_PATH + "Patches/AlarmPatch.js"
-	},
-    
-	"KPSSRenamePatch": {
+    },
+
+    "KPSSRenamePatch": {
         "file": _BASE_PATH + "Patches/KPSSRenamePatch.js",
         "name": "KPSS Rename",
         "description": "Rename 'KPSS Radio' to a custom name.",
+        author: "Author: Aidan's Lab",
         "inputType": "text",
         "placeholder": "Enter new name (e.g., GNR)"
     },
-	
-	"CameraModule": {
+
+    "CameraModule": {
         name: "Pip-Cam Module",
         description: "Module for Pip-Cam support.",
+        author: "Author: Aidan's Lab",
         file: _BASE_PATH + "Patches/CameraModule.js"
-	}
+    }
 
     // Add new patches here
 };
