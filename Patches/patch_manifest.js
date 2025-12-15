@@ -93,7 +93,7 @@ const PATCH_MANIFEST = {
     "AlarmPatch": {
         name: "Alarm Patch",
         description: "Adds ALARM menu to DATA tab. Supports custom radio stations as alarm sounds.",
-        author: "Author: Dougie",
+        author: "Author: Dougie-1",
         file: _BASE_PATH + "Patches/AlarmPatch.js"
     },
 
