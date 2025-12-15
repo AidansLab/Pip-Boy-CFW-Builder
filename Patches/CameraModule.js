@@ -73,7 +73,6 @@ let submenuCamera = () =>
             return;
         }
 
-        E.defrag();
         bufferCreate();
         bC.clear().flip();
 
@@ -156,6 +155,7 @@ let submenuCamera = () =>
     {
         if (bC) { bC.buffer = undefined; bC = undefined; }
         process.memory(true);
+        E.defrag();
     }
 
     function updateImage()
@@ -166,7 +166,7 @@ let submenuCamera = () =>
         ThrobberInterval = null;
         clearTimeout(ThrobberTimeout);
         ThrobberTimeout = null;
-        clearThrobberArea();
+        //clearThrobberArea();
         drawPicture();
     }
 
