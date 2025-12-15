@@ -52,9 +52,6 @@ let submenuCamera = () =>
 
     function drawPicture()
     {
-        bufferCreate();
-        bC.clear().flip();
-
         if(imageArray.length==0)
         {
             g.setFontMonofonto18().setFontAlign(0, 0).drawString("NO IMAGES", g.getWidth()/2, g.getHeight()/2);
@@ -75,6 +72,10 @@ let submenuCamera = () =>
             g.drawString("Image corrupt, try again", g.getWidth()/2, g.getHeight()/2);
             return;
         }
+
+        E.defrag();
+        bufferCreate();
+        bC.clear().flip();
 
         // Read Header (8 bytes)
         // [W_lo, W_hi, H_lo, H_hi, BPP, ...]
@@ -142,6 +143,7 @@ let submenuCamera = () =>
     function bufferCreate()
     {
         // Create a NEW 4bpp buffer (400x210 x 4 bits = ~42KB RAM)
+        bCCleanup();
         bC = Graphics.createArrayBuffer(400, 210, 4, { msb: true });
 
         // Restore the flip function (required to send data to the screen)
@@ -170,10 +172,7 @@ let submenuCamera = () =>
 
     function updateImageFromCam()
     {
-        busy = true;
-
         buildImageArray();
-
         updateImage();
     }
 
@@ -200,6 +199,7 @@ let submenuCamera = () =>
         saveSettings();
         if (g.reset) g.reset();
         removeButtonListeners();
+        reset();
         E.reboot();
     }
 
@@ -299,6 +299,8 @@ let submenuCamera = () =>
 
     function handleTuneButton()
     {
+        if(busy) return;
+
         if(deleteState == true)
         {
             if(deleteSelect)
