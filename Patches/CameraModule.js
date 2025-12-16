@@ -55,6 +55,7 @@ let submenuCamera = () =>
         if(imageArray.length==0)
         {
             g.setFontMonofonto18().setFontAlign(0, 0).drawString("NO IMAGES", g.getWidth()/2, g.getHeight()/2);
+            busy = false;
             return;
         }
 
@@ -63,6 +64,7 @@ let submenuCamera = () =>
 
         if (!f) {
             console.log("Image not found");
+            busy = false;
             return;
         }
 
@@ -70,6 +72,7 @@ let submenuCamera = () =>
         {
             g.setFontAlign(0, 0);
             g.drawString("Image corrupt, try again", g.getWidth()/2, g.getHeight()/2);
+            busy = false;
             return;
         }
 
@@ -113,7 +116,7 @@ let submenuCamera = () =>
         let y = 0;
         
         // Draw 15 lines every 10ms. This prevents the "Execution Interrupted" error.
-        drawingInterval = setInterval(function() {
+        let drawingInterval = setInterval(function() {
             for (let i = 0; i < 15; i++) {
                 // Check if we are done
                 if (y >= imgH) {
@@ -123,6 +126,8 @@ let submenuCamera = () =>
                     bC.flip(); // Update screen ONLY once at the end
                     busy = false;
                     bCCleanup();
+                    lineView = undefined;
+                    lineImg = undefined;
                     return;
                 }
 
