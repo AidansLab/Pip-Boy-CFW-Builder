@@ -25,6 +25,122 @@ document.addEventListener('DOMContentLoaded', () => {
         };
     }
 
+    // --- Espruino File Protocol Helpers ---
+    // These implement the packet-based file transfer protocol using the existing serial connection
+
+    // State for tracking ACK/NAK responses
+    let packetAckResolve = null;
+    let packetAckReject = null;
+    let packetTimeout = null;
+
+
+
+    /**
+     * Send a packet using Espruino file protocol
+     * @param {string} pkType - One of: FILE_SEND, DATA
+     * @param {string} data - The packet data
+     * @param {object} options - {noACK, timeout}
+     * @returns {Promise}
+     */
+    async function espruinoSendPacket(pkType, data, options = {}) {
+        const timeout = options.timeout || 5000;
+
+        const PKTYPES = {
+            RESPONSE: 0,
+            EVAL: 0x2000,
+            EVENT: 0x4000,
+            FILE_SEND: 0x6000,
+            DATA: 0x8000,
+            FILE_RECV: 0xA000
+        };
+
+        if (!(pkType in PKTYPES)) throw new Error(`Unknown packet type: ${pkType}`);
+        if (data.length > 0x1FFF) throw new Error('Packet data too long');
+
+        const flags = data.length | PKTYPES[pkType];
+        const header = String.fromCharCode(16, 1, (flags >> 8) & 0xFF, flags & 0xFF); // DLE, SOH, flags high, flags low
+        const packet = header + data;
+
+        return new Promise((resolve, reject) => {
+            // Enable binary mode to bypass Ctrl-C detection
+            Espruino.Core.Serial.setBinary(true);
+
+            if (!options.noACK) {
+                packetAckResolve = () => {
+                    Espruino.Core.Serial.setBinary(false);
+                    resolve();
+                };
+                packetAckReject = (err) => {
+                    Espruino.Core.Serial.setBinary(false);
+                    reject(err);
+                };
+                packetTimeout = setTimeout(() => {
+                    packetAckResolve = null;
+                    packetAckReject = null;
+                    packetTimeout = null;
+                    Espruino.Core.Serial.setBinary(false);
+                    reject(new Error(`Packet timeout (${timeout}ms)`));
+                }, timeout);
+            }
+
+            Espruino.Core.Serial.write(packet, false, () => {
+                if (options.noACK) {
+                    Espruino.Core.Serial.setBinary(false);
+                    resolve();
+                }
+                // Otherwise wait for ACK/NAK via the listener
+            });
+        });
+    }
+
+    /**
+     * Send a file using Espruino file protocol
+     * @param {string} filename - Target filename
+     * @param {string} data - File contents as string
+     * @param {object} options - {fs: true/false, progress: fn, chunkSize, noACK}
+     * @returns {Promise}
+     */
+    async function espruinoSendFile(filename, data, options = {}) {
+        if (typeof data !== 'string') throw new Error("'data' must be a String");
+
+        const CHUNK = options.chunkSize || 1024;
+        const progressHandler = options.progress || (() => { });
+        const packetOptions = { noACK: !!options.noACK };
+
+        // Build FILE_SEND packet options
+        const fileSendOptions = {
+            fn: filename,
+            s: data.length
+        };
+        if (options.fs) {
+            fileSendOptions.fs = 1;  // fs:1 = SD card (FAT filesystem)
+        }
+        // fs:0 is default for flash, so we only include fs if it's true
+
+        const packetTotal = Math.ceil(data.length / CHUNK) + 1;
+        let packetCount = 0;
+
+        console.log(`Sending file: ${filename} (${data.length} bytes, fs:${options.fs ? 1 : 0})`);
+        progressHandler(0, packetTotal);
+
+        // Send FILE_SEND packet (always wait for ACK)
+        await espruinoSendPacket('FILE_SEND', JSON.stringify(fileSendOptions));
+
+        // Send DATA packets
+        let offset = 0;
+        while (offset < data.length) {
+            const chunk = data.substring(offset, offset + CHUNK);
+            offset += chunk.length;
+            packetCount++;
+
+            progressHandler(packetCount, packetTotal);
+            await espruinoSendPacket('DATA', chunk, packetOptions);
+        }
+
+        console.log(`File sent: ${filename}`);
+    }
+
+
     const fwSelect = document.getElementById('fw-select');
     const patchListDiv = document.getElementById('patch-list');
     const patchButton = document.getElementById('patch-button');
@@ -75,6 +191,29 @@ document.addEventListener('DOMContentLoaded', () => {
                 for (let i = 0; i < uint8Array.length; i++) {
                     str += String.fromCharCode(uint8Array[i]);
                 }
+
+                // Check for ACK (0x06) or NAK (0x15) for file protocol
+                for (let i = 0; i < str.length; i++) {
+                    const ch = str.charCodeAt(i);
+                    if (ch === 0x06 && packetAckResolve) { // ACK
+                        console.log('Received ACK');
+                        if (packetTimeout) clearTimeout(packetTimeout);
+                        const resolve = packetAckResolve;
+                        packetAckResolve = null;
+                        packetAckReject = null;
+                        packetTimeout = null;
+                        resolve();
+                    } else if (ch === 0x15 && packetAckReject) { // NAK
+                        console.log('Received NAK');
+                        if (packetTimeout) clearTimeout(packetTimeout);
+                        const reject = packetAckReject;
+                        packetAckResolve = null;
+                        packetAckReject = null;
+                        packetTimeout = null;
+                        reject(new Error('NAK received'));
+                    }
+                }
+
                 serialDataBuffer += str;
                 console.log('Received:', str);
             });
@@ -807,6 +946,8 @@ document.addEventListener('DOMContentLoaded', () => {
 
         console.log(`Found ${enabledPatches.length} patch(es) with resources to upload.`);
 
+
+
         for (const patch of enabledPatches) {
             console.log(`Processing resources for ${patch.name}...`);
             const { sourceFolder, targetPath, files } = patch.resources;
@@ -877,41 +1018,27 @@ document.addEventListener('DOMContentLoaded', () => {
                     const bytes = new Uint8Array(arrayBuffer);
                     const targetFile = `${targetPath}/${fileName}`;
 
-                    console.log(`Uploading ${fileName} (${bytes.length} bytes)...`);
+                    console.log(`Uploading ${fileName} (${bytes.length} bytes) using Espruino file protocol...`);
 
-                    // Open file for writing on SD card using E.openFile
-                    await writeCommand(`\x10var f=E.openFile(${JSON.stringify(targetFile)},"w");\n`, false);
-                    await delay(100);
-
-                    // Write file in chunks
-                    const chunkSize = 256;
-                    const totalChunks = Math.ceil(bytes.length / chunkSize);
-
-                    for (let i = 0; i < bytes.length; i += chunkSize) {
-                        const chunk = bytes.slice(i, Math.min(i + chunkSize, bytes.length));
-
-                        // Convert chunk to array of byte values for transmission
-                        const byteArray = Array.from(chunk);
-
-                        // Update progress on screen and in console
-                        const chunkNum = Math.floor(i / chunkSize) + 1;
-
-                        // Update screen every few chunks to reduce overhead
-                        if (chunkNum % 5 === 1 || chunkNum === totalChunks) {
-                            await writeCommand(`\x10g.clearRect(0,210,478,240);g.drawString("File ${fileIndex + 1}/${filesToUpload.length}: ${fileName}",240,215,true);g.drawString("Chunk ${chunkNum}/${totalChunks}",240,235,true);\n`, false);
-                            await delay(30);
-                        }
-
-                        // Write chunk using file handle - convert byte array to string on device
-                        const cmd = `\x10f.write(String.fromCharCode.apply(null,${JSON.stringify(byteArray)}));\n`;
-                        await writeCommand(cmd, false);
+                    // Update screen progress every 5 files
+                    if (fileIndex % 5 === 0 || fileIndex === filesToUpload.length - 1) {
+                        await writeCommand(`\x10g.clearRect(0,210,478,240);g.drawString("File ${fileIndex + 1}/${filesToUpload.length}: ${fileName}",240,225,true);\n`, false);
                         await delay(30);
-                        console.log(`Wrote chunk ${chunkNum}/${totalChunks}...`);
                     }
 
-                    // Close the file
-                    await writeCommand('\x10f.close();\n', false);
-                    await delay(100);
+                    // Convert Uint8Array to string for espruinoSendFile
+                    let fileData = '';
+                    for (let i = 0; i < bytes.length; i++) {
+                        fileData += String.fromCharCode(bytes[i]);
+                    }
+
+                    // Use Espruino file protocol with fs:1 for SD card
+                    await espruinoSendFile(targetFile, fileData, {
+                        fs: true,  // fs:1 = SD card (FAT filesystem)
+                        progress: (chunkNo, chunkCount) => {
+                            console.log(`  ${fileName}: chunk ${chunkNo}/${chunkCount}`);
+                        }
+                    });
 
                     console.log(`Uploaded ${fileName}`);
 
@@ -991,49 +1118,28 @@ document.addEventListener('DOMContentLoaded', () => {
             await writeCommand('\x10try{require("fs").unlink("FW.js");}catch(e){}\n');
             await delay(500);
 
-            // Write firmware to SD card as FW.js using E.openFile
-            console.log('Writing firmware to SD card...');
+
+
+            // Write firmware to SD card as FW.js using Espruino file protocol
+            console.log('Writing firmware to SD card using Espruino file protocol...');
             writeSDButton.textContent = 'WRITING FW.JS...';
-            await writeCommand('\x10g.clearRect(0,140,478,319);g.drawString("Opening file for write...",240,160,true);\n');
+            await writeCommand('\x10g.clearRect(0,140,478,319);g.drawString("Writing FW.js...",240,160,true);\n');
             await delay(100);
 
-            // Open file for writing
-            await writeCommand('\x10var fw=E.openFile("FW.js","w");\n');
-            await delay(300);
-
-            const CHUNK_SIZE = 512; // Smaller chunks for more reliable writing
-            const totalChunks = Math.ceil(generatedFirmware.length / CHUNK_SIZE);
-
-            for (let i = 0; i < generatedFirmware.length; i += CHUNK_SIZE) {
-                const chunk = generatedFirmware.substr(i, CHUNK_SIZE);
-                const chunkNum = Math.floor(i / CHUNK_SIZE) + 1;
-
-                // Update progress
-                writeSDButton.textContent = `WRITING ${chunkNum}/${totalChunks}`;
-                if (chunkNum % 10 === 1 || chunkNum === totalChunks) {
-                    // Update screen every 10 chunks to reduce overhead
-                    await writeCommand(`\x10g.clearRect(0,140,478,319);g.drawString("Writing ${chunkNum}/${totalChunks}",240,160,true);\n`, false);
-                    await delay(50);
+            // Use Espruino file protocol with fs:1 for SD card
+            const totalChunks = Math.ceil(generatedFirmware.length / 1024);
+            await espruinoSendFile("FW.js", generatedFirmware, {
+                fs: true,  // fs:1 = SD card (FAT filesystem)
+                progress: (chunkNo, chunkCount) => {
+                    writeSDButton.textContent = `WRITING ${chunkNo}/${chunkCount}`;
+                    console.log(`Wrote chunk ${chunkNo}/${chunkCount}`);
                 }
+            });
 
-                // Write chunk using file handle with error handling (no logging)
-                // Convert to base64 to safely transmit binary data
-                const cmd = `\x10try{fw.write(atob(${JSON.stringify(btoa(chunk))}));}catch(e){g.drawString("Err: "+e.message,240,280,true);}\n`;
-                await writeCommand(cmd, false);
-
-                // Small delay between chunks
-                await delay(20);
-
-                console.log(`Wrote chunk ${chunkNum}/${totalChunks}`);
-            }
-
-            // Close the file
-            console.log('Closing file...');
+            console.log('Firmware written successfully!');
             writeSDButton.textContent = 'FINALIZING...';
-            await writeCommand('\x10g.clearRect(0,140,478,319);g.drawString("Closing file...",240,160,true);\n');
+            await writeCommand('\x10g.clearRect(0,140,478,319);g.drawString("Firmware written!",240,160,true);\n');
             await delay(100);
-            await writeCommand('\x10fw.close();\n');
-            await delay(500);
 
             // Write VERSION file
             console.log('Writing VERSION file...');
@@ -1050,13 +1156,12 @@ document.addEventListener('DOMContentLoaded', () => {
             const versionString = firmwareVersion ? `${firmwareVersion}.${epochLast3}` : `unknown.${epochLast3}`;
             console.log(`Writing VERSION file with content: ${versionString}`);
 
-            // Write VERSION file using E.openFile
-            await writeCommand('\x10var vf=E.openFile("VERSION","w");\n');
-            await delay(300);
-            await writeCommand(`\x10vf.write(${JSON.stringify(versionString)});\n`);
+            // Write VERSION file using Espruino file protocol with fs:1 for SD card
+            await espruinoSendFile("VERSION", versionString, {
+                fs: true  // fs:1 = SD card (FAT filesystem)
+            });
             await delay(200);
-            await writeCommand('\x10vf.close();\n');
-            await delay(500);
+
 
             console.log('Firmware written successfully!');
             writeSDButton.textContent = 'COMPLETING...';
@@ -1175,37 +1280,22 @@ document.addEventListener('DOMContentLoaded', () => {
             await writeCommand('\x10try{require("Storage").erase(".bootcde");}catch(e){}\n');
             await delay(500);
 
-            // Write firmware to flash as .bootcde using Storage.write in chunks
-            console.log('Writing firmware to flash...');
+
+
+            // Write firmware to flash as .bootcde using Espruino file protocol
+            console.log('Writing firmware to flash using Espruino file protocol...');
             writeFlashButton.textContent = 'WRITING TO FLASH...';
+            await writeCommand('\x10g.clearRect(0,140,478,319);g.drawString("Writing .bootcde...",240,160,true);\n');
             await delay(100);
 
-            const CHUNK_SIZE = 1024;
-            const fileName = '.bootcde';
-            const totalChunks = Math.ceil(generatedFirmware.length / CHUNK_SIZE);
-
-            for (let i = 0; i < generatedFirmware.length; i += CHUNK_SIZE) {
-                const chunk = generatedFirmware.substr(i, CHUNK_SIZE);
-                const chunkNum = Math.floor(i / CHUNK_SIZE) + 1;
-                const sizeParam = (i === 0) ? `,${generatedFirmware.length}` : '';
-
-                // Update progress
-                writeFlashButton.textContent = `WRITING ${chunkNum}/${totalChunks}`;
-                if (chunkNum % 10 === 1 || chunkNum === totalChunks) {
-                    // Update screen every 10 chunks to reduce overhead
-                    await writeCommand(`\x10g.clearRect(0,140,478,319);g.drawString("Writing ${chunkNum}/${totalChunks}",240,160,true);\n`, false);
-                    await delay(50);
+            // Use Espruino file protocol with fs:0 for internal flash storage
+            await espruinoSendFile(".bootcde", generatedFirmware, {
+                fs: false,  // fs:0 = internal flash storage (default)
+                progress: (chunkNo, chunkCount) => {
+                    writeFlashButton.textContent = `WRITING ${chunkNo}/${chunkCount}`;
+                    console.log(`Wrote chunk ${chunkNo}/${chunkCount} to flash`);
                 }
-
-                // Write chunk to Storage with error handling (no logging)
-                const cmd = `\x10try{require("Storage").write(${JSON.stringify(fileName)},atob(${JSON.stringify(btoa(chunk))}),${i}${sizeParam});}catch(e){g.drawString("Error: "+e,240,300,true);}\n`;
-                await writeCommand(cmd, false);
-
-                // Delay between chunks to avoid overwhelming the device
-                await delay(100);
-
-                console.log(`Wrote chunk ${chunkNum}/${totalChunks} to flash`);
-            }
+            });
 
             console.log('Firmware written to flash successfully!');
             writeFlashButton.textContent = 'COMPLETING...';
@@ -1278,7 +1368,6 @@ document.addEventListener('DOMContentLoaded', () => {
             return;
         }
 
-        installButton.disabled = true;
         installButton.textContent = 'PREPARING...';
 
         try {

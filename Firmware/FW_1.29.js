@@ -2145,6 +2145,7 @@ let submenuMaintenance = () => {
 			Pip.removeSubmenu(), submenuPalette()
 		},
 		//MaintenancePatchInsert_RAMScanToggle
+		//CameraModuleInsert_CorruptionToggle
 		"Demo mode": enterDemoMode,
 		About: function () {
 			Pip.removeSubmenu(), submenuAbout()

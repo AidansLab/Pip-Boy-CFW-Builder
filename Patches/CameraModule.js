@@ -6,9 +6,11 @@ window.Patches.CameraModule = {
 if (!settings.camera) {
     settings.camera = {
         contrast: 0,
-        brightness: 0
+        brightness: 0,
+        corruption: false
     };
 }
+let pictures = 0;
 let submenuCamera = () =>
 {
     const KNOB_LEFT = 'knob1';
@@ -31,7 +33,7 @@ let submenuCamera = () =>
         imageArray = fs.readdir("IMGS");
         imageArray.shift();
         imageArray.shift();
-        console.log(imageArray);
+        //console.log(imageArray);
         fileCount = imageArray.length-1;
         fileIndex = fileCount;
     }
@@ -50,10 +52,33 @@ let submenuCamera = () =>
 
     let busy = false;
 
+    let palBuffer = new Uint16Array(16);
+    let cR = 0, cG = 1, cB = 0; // Default to Green if settings are missing
+    
+    if (settings.color) {
+        // Normalize 0-255 settings to 0.0-1.0
+        cR = (settings.color.r !== undefined ? settings.color.r : 0) / 255;
+        cG = (settings.color.g !== undefined ? settings.color.g : 255) / 255;
+        cB = (settings.color.b !== undefined ? settings.color.b : 0) / 255;
+    }
+
+    // Populate the 16-color palette
+    for (let i = 0; i < 16; i++) {
+        // Map index 0-15 to 0.0-1.0 intensity
+        let intensity = i / 15;
+        
+        // Create color using the system theme ratios
+        palBuffer[i] = g.toColor(intensity * cR, intensity * cG, intensity * cB);
+    }
+    
+    // Assign the generated palette to sysPalette
+    const sysPalette = palBuffer;
+
     function drawPicture()
     {
         if(imageArray.length==0)
         {
+            g.clearRect(0, 51, 480, 290);
             g.setFontMonofonto18().setFontAlign(0, 0).drawString("NO IMAGES", g.getWidth()/2, g.getHeight()/2);
             busy = false;
             return;
@@ -62,22 +87,26 @@ let submenuCamera = () =>
         // Open the file
         const f = E.openFile("IMGS/"+imageArray[fileIndex], "r");
 
-        if (!f) {
-            console.log("Image not found");
+        if (!f)
+        {
+            g.clearRect(0, 51, 480, 290);
+            //console.log("Image not found");
+            f.close();
             busy = false;
             return;
         }
 
         if (fs.statSync("IMGS/"+imageArray[fileIndex]).size < 30000)
         {
+            g.clearRect(0, 51, 480, 290);
             g.setFontAlign(0, 0);
-            g.drawString("Image corrupt, try again", g.getWidth()/2, g.getHeight()/2);
+            g.setFontMonofonto18().setFontAlign(0, 0).drawString("Image corrupt, try reconverting", g.getWidth()/2, g.getHeight()/2);
+            f.close();
             busy = false;
             return;
         }
 
-        bufferCreate();
-        bC.clear().flip();
+        //console.log(E.getSizeOf(imageArray));
 
         // Read Header (8 bytes)
         // [W_lo, W_hi, H_lo, H_hi, BPP, ...]
@@ -94,8 +123,8 @@ let submenuCamera = () =>
 
         // Calculate Centering
         // Screen is 400x210
-        const screenW = bC.getWidth(); 
-        const screenH = bC.getHeight(); // approx 210 for the buffer area
+        const screenW = g.getWidth(); 
+        const screenH = g.getHeight(); // approx 210 for the buffer area
 
         const startX = Math.floor((screenW - imgW) / 2);
         const startY = Math.floor((screenH - imgH) / 2); // Vertical center
@@ -109,12 +138,13 @@ let submenuCamera = () =>
             width: imgW,
             height: 1,
             bpp: bpp,
-            buffer: new ArrayBuffer(bytesPerRow)
+            buffer: new ArrayBuffer(bytesPerRow),
+            palette: sysPalette
         };
         let lineView = new Uint8Array(lineImg.buffer);
 
         let y = 0;
-        
+                
         // Draw 15 lines every 10ms. This prevents the "Execution Interrupted" error.
         let drawingInterval = setInterval(function() {
             for (let i = 0; i < 15; i++) {
@@ -123,12 +153,11 @@ let submenuCamera = () =>
                     clearInterval(drawingInterval);
                     drawingInterval = null;
                     f.close();
-                    bC.flip(); // Update screen ONLY once at the end
                     busy = false;
-                    bCCleanup();
                     lineView = undefined;
                     lineImg = undefined;
-                    return;
+                    process.memory(true);
+                    return; 
                 }
 
                 // Read and Draw
@@ -136,24 +165,12 @@ let submenuCamera = () =>
                 if (chunk) {
                     if (startY + y >= 0 && startY + y < screenH) {
                         lineView.set(E.toUint8Array(chunk));
-                        bC.drawImage(lineImg, startX, startY + y);
+                        g.drawImage(lineImg, startX, startY + y);
                     }
                 }
                 y++;
             }
         }, 10);
-    }
-
-    function bufferCreate()
-    {
-        // Create a NEW 4bpp buffer (400x210 x 4 bits = ~42KB RAM)
-        bCCleanup();
-        bC = Graphics.createArrayBuffer(400, 210, 4, { msb: true });
-
-        // Restore the flip function (required to send data to the screen)
-        bC.flip = function(y) { 
-            Pip.blitImage(bC, 40, 65, { height: y });
-        };
     }
 
     function bCCleanup()
@@ -172,6 +189,7 @@ let submenuCamera = () =>
         clearTimeout(ThrobberTimeout);
         ThrobberTimeout = null;
         //clearThrobberArea();
+        
         drawPicture();
     }
 
@@ -247,8 +265,22 @@ let submenuCamera = () =>
     function handleTopButton()
     {
         if (busy) return;
+
+        if(fs.getFree().freeSectors-92<3)
+        {
+            g.clearRect(0, 51, 480, 290);
+            g.setFontMonofonto18().setFontAlign(0, 0).drawString("NOT ENOUGH FREE SPACE ON SD", g.getWidth()/2, g.getHeight()/2);
+            return;
+        } else
+        if(process.memory(false).free-6<600)
+        {
+            g.clearRect(0, 51, 480, 290);
+            g.setFontMonofonto18().setFontAlign(0, 0).drawString("NOT ENOUGH MEMORY", g.getWidth()/2, g.getHeight()/2);
+            return;
+        }
+        
         busy = true;
-        console.log("TakePic," + settings.camera.brightness + "," + settings.camera.contrast);
+        console.log("TakePic," + settings.camera.brightness + "," + settings.camera.contrast + "," + settings.camera.corruption + "\\n");
         g.clearRect(0, 51, 480, 290);
         startThrobber();
     }
@@ -261,7 +293,7 @@ let submenuCamera = () =>
         if(deleteState == true)
         {
             deleteSelect=!deleteSelect;
-            console.log(deleteSelect);
+            //console.log(deleteSelect);
             deleteHighlight();
             return;
         }
@@ -272,8 +304,6 @@ let submenuCamera = () =>
             
             // Clear any previous throbbers/drawing and redraw
             updateImage();
-        } else {
-            //console.log("PicUp: Max files reached");
         }
     }
 
@@ -285,7 +315,7 @@ let submenuCamera = () =>
         if(deleteState == true)
         {
             deleteSelect=!deleteSelect;
-            console.log(deleteSelect);
+            //console.log(deleteSelect);
             deleteHighlight();
             return;
         }
@@ -297,8 +327,6 @@ let submenuCamera = () =>
             
             // Clear any previous throbbers/drawing and redraw
             updateImage();
-        } else {
-            //console.log("PicDown: Already at first image");
         }
     }
 
@@ -310,10 +338,10 @@ let submenuCamera = () =>
         {
             if(deleteSelect)
             {
-                console.log("Delete: " + imageArray[fileIndex]);
+                //console.log("Delete: " + imageArray[fileIndex]);
                 deleteImage();
             } else {
-                console.log("Keep: " + imageArray[fileIndex]);
+                //console.log("Keep: " + imageArray[fileIndex]);
                 drawPicture();
             }
             deleteState = false;
@@ -336,7 +364,6 @@ let submenuCamera = () =>
         if(lastIndex <= fileCount)
         {
             fileIndex = lastIndex;
-            console.log("Showing: "+imageArray[fileIndex]);
         }
         drawPicture();
     }
@@ -380,17 +407,15 @@ let submenuCamera = () =>
         if (knob == 0) // Brightness
         {
             bH.setFontMonofonto28().setFontAlign(-1, -1).setColor(13);
-            bH.clearRect(28, 0, 90, 51).flip();
+            bH.clearRect(28, 0, 90, 49).flip();
             settings.camera.brightness += dir;
             bH.drawString(settings.camera.brightness, 28, 5).flip();
-            //console.log(settings.camera.brightness + ", " + settings.camera.contrast);
         } else if (knob == 1) // Contrast
         {
             bH.setFontMonofonto28().setFontAlign(1, -1).setColor(13);
-            bH.clearRect(280, 0, 342, 51).flip();
+            bH.clearRect(280, 0, 342, 49).flip();
             settings.camera.contrast += -dir;
             bH.drawString(settings.camera.contrast, 342, 5).flip();
-            //console.log(settings.camera.brightness + ", " + settings.camera.contrast);
         }
     }
 
@@ -495,6 +520,16 @@ let submenuCamera = () =>
         `,
         Icon: `
         , "\\xc2\\x5e\\x30\\x50\\x3f\\xf8\\x03\\xf0\\x07\\xe0\\x0f\\xc0\\x1f\\x80\\x3f\\x00\\x7e\\x00\\xff\\xff\\xaa\\x10\\x41\\xbf\\x0f\\xbb\\xfe\\xd5\\x6b\\xc4\\x0e\\xfe\\xb5\\x42\\x17\\x75\\x3e\\xa1\\x00\\x28\\x56\\xc7\\xe1\\x00\\x02\\x42\\xb5\\xda\\x10\\x08\\x63\\x63\\xde\\xc2\\x04\\x00\\x26\\x9c\\x40\\xbf\\xac\\x40\\x36\\xac\\x40\\xbe\\xaa\\xb4\\x1d\\x0b\\x34\\xa5\\x68\\x7a\\x1e\\xa6\\x82\\x04\\x0b\\x3e\\x20\\x63\\x4b\\x5a\\xca\\xd5\\x6d\\x4a\\x56\\x43\\x20\\xe5\\xb5\\x26\\x50\\x6b\\x40\\x30\\x50\\x8b\\xfa\\x90\\x82\\x10\\xc1\\xab\\x08\\x18\\xd4\\x97\\x82\\x33\\x03\\x6a\\xd2\\xa9\\x57\\xfd\\x6a\\x5c\\xc2\\x88\\x81\\x10\\x2d\\xd6\\xcb\\x08\\x05\\x24\\x02\\x20\\x59\\x86\\x08\\x80\\x7d\\xf8\\x81\\x50\\xc0\\x28\\x30\\x90\\x00\\x80\\x82\\x10\\x2d\\xa5\\x3e\\x02\\x1d\\x07\\x48\\x03\\x04\\xd2\\x08\\x81\\x6f\\x30\\x80\\x33\\x38\\x42\\x00\\x6f\\xe1\\x93\\x86\\x23\\x75\\x90\\x22\\x66\\x8c\\x41\\x07\\xce\\xff\\x6a\\xb5\\x60\\x71\\x3e\\xca\\x31\\x75\\x59\\x5b\\x51\\x04\\xe1\\x00\\x23\\x21\\x44\\x03\\xea\\xab\\x44\\x13\\xbe\\xc5\\x50\\x6f\\xff\\xdb\\x55\\x56\\xff\\xda\\x0e\\x07\\xa6\\x10\\x25\\xfa\\xca\\xd5\\x6a\\x91\\x1b\\x56\\x54\\x40\\x09\\x6c\\x10\\xf0\\x39\\x53\\x18\\x62\\x03\\xf4\\x95\\x50\\x00\\x22\\x00\\x6a\\xb5\\xac\\xac\\x69\\x80\\x0e\\x44\\x40\\x16\\x5c\\x40\\x80\\x74\\x15\\xc8\\x25\\xd0\\xb4\\xb5\\x63\\x60\\x22\\x00\\xb2\\xb6\\x71\\x01\\xc3\\xc0\\xaa\\xa3\\xa0\\x75\\x5a\\x9a\\xab\\x80\\x1a\\xd1\\x88\\x3d\\x29\\x04\\xfb\\x4d\\x19\\x76\\x26\\x96\\xd3\\xa6\\xd4\\xda\\x81\\x22\\x08\\x0f\\x1f\\x82\\x20\\x1f\\x4a\\x20\\x13\\x2d\\xaf\\x10\\x1d\\x5a\\x2c\\x85\\xa5\\xaa\\xd5\\x80\\x40\\x88\\x06\\xd5\\x08\\x0e\\xfe\\x84\\x41\\x60\\x02\\xc7\\x08\\x00\\x08\\x81\\x6f\\xb0\\x44\\x1d\\x25\\x04\\x32\\x0d\\xa6\\xad\\xa6\\xca\\xd5\\x04\\x02\\xea\\xdc\\xa7\\x1f\\x82\\xaa\\x99\\x41\\xd3\\x10\\xc3\\x35\\x82\\x20\\x4f\\x53\\x5a\\xd4\\xc5\\xaa\\x11\\x5d\\x2b\\xb0\\x25\\x68\\x59\\xa1\\x02\\x59\\x6c\\xae\\x96\\x33\\x55\\xa0\\xda\\x48\\xc0\\x88\\x03\\xca\\x88\\x11\\x41\\x83\\xa9\\xaa\\x5a\\x6b\\x34\\x01\\x00\\x75\\x60\\x50\\x35\\x54\\x30\\x4a\\x44\\x6a\\x16\\x9b\\x2c\\x02\\x34\\x41\\x0f\\x53\\x59\\xd2\\x08\\x02\\xdf\\xb1\\x51\\xb4\\x59\\x04\\x00\\x8f\\x01\\x00\\x05\\x6a\\x74\\x84\\x61\\x39\\x8a\\x18\\x80\\x1a\\xa0\\x80\\x40\\xe8\\x55\\xa0\\x10\\x24\\x03\\x98\\xa1\\x88\\x03\\x8c\\x98\\x81\\xab\\x08\\x01\\xca\\x98\\x42\\xbf\\x88\\x0e\\xfb\\x0e\\x82\\xb4\\xc5\\x20\\x0a\\x40\\x84\\x00\\xd5\\x6b\\x4c\\x40\\x83\\xe7\\x7f\\xfa\\xda\\xa1\\x00\\x35\\x98\\x00\\x80\\x67\\x22\\x20\\x00\\x7a\\xaf\\xb0\\x47\\x00\\xd4\\x20\\xb6\\x90\\x28\\x35\\x6d\\x4d\\x98\\x40\\x16\\x9c\\x40\\x7f\\x94\\x40\\x15\\x5b\\x2b\\x56\\xd3\\x08\\x03\\xab\\x08\\x02\\xd7\\x88\\x0f\\xd4\\xa6\\x41\\x31\\x82\\x17\\x07\\x2c\\x04\\x04\\x3c\\x0a\\x88\\x26\\x22\\x1f\\xf6\\xc8\\x22\\x00\\xab\\x4a\\x90\\x84\\x02\\xa0\\x90\\xff\\x18\\x41\\x2c\\x04\\x9e\\x04\\x40\\x23\\x10\\x2d\\x2c\\xe8\\x84\\x70\\x80\\x1d\\x2d\\x18\\x2c\\x09\\x00\\x1a\\xd6\\x6b\\x4d\\x96\\xd5\\x66\\x81\\x20\\xe5\\x6b\\x48\\x43\\xbf\\x41\\x30\\xab\\xe2\\x70\\x8c\\x61\\x10\\x41\\x11\\x02\\x00\\x06\\xb5\\xa7\\x21\\x1a\\x20\\x0b\\x4b\\x7f\\x10\\x0a\\x60\\x04\\x40\\x12\\xcc\\x1d\\x2a\\x18\\xdf\\x52\\xe0\\x51\\x38\\x40\\x00\\xb4\\xc2\\xd0\\x80\\x81\\x10\\x8c\\x10\\x0c\\x06\\x0c\\x3a\\x11\\x94\\x30\\x08\\x28\\x53\\x04\\x03\\x32\\x42\\x00\\x05\\xa4\\xab\\x69\\x4c\\xe0\\xb2\\x82\\x10\\x16\\x17\\x0c\\x40\\x0f\\xfb\\x2b\\x55\\x10\\x09\\x15\\xaa\\xda\\x84\\x01\\x98\\xcb\\x0b\\x87\\x9f\\x1f\\x83\\xa9\\xa2\\x88\\x43\\xd2\\x2a\\x02\\x52\\x82\\x20\\x45\\xba\\x19\\x8c\\x4d\\x28\\x70\\x25\\x28\\x20\\x00\\x50\\x85\\x7f\\x42\\xe1\\x95\\x02\\x0b\\x88\\xc0\\x04\\x4c\\x10\\xb4\\x37\\x41\\x5f\\xe1\\x00\\xfa\\x82\\x10\\x79\\x60\\xe8\\x3a\\x90\\x60\\x62\\x04\\xcf\\x41\\x88\\x01\\x23\\x82\\xac\\x10\\x40\\x78\\x6c\\x31\\x28\\x95\\xad\\x4d\\xa4\\x0c\\x1b\\x9c\\xb1\\x00\\x63\\xc1\\x35\\x59\\x50\\x40\\x41\\xd0\\x48\\x02\\x08\\x10\\x09\\x89\\xa5\\xaa\\xda\\x84\\x61\\x64\\x55\\xa2\\x98\\x8e\\x00\\x0a\\x21\\x05\\x4e\\x10\\x8c\\x16\\x28\\x62\\x05\\x43\\x42\\x69\\x6d\\x48\\x41\\x04\\x04\\xff\\xc4\\x07\\x6a\\x6b\\x29\\x01\\x04\\x0c\\xa9\\x46\\x10\\x2a\\x9e\\x11\\x4a\\x08\\x00\\x2d\\x58\\x80\\xaf\\x50\\x78\\x70\\x40\\x2c\\xd1\\x04\\xa2\\x08\\x17\\x3f\\x06\\x04\\x13\\x4e\\x20\\x29\\x8c\\x3e\\xac\\x40\\x36\\xa9\\x8a\\x1e\\xbc\\x40\\x52\\x10\\x6d\\x49\\x28\\x38\\xd0\\x81\\x4f\\xb1\\xd0\\x61\\x00\\x41\\xb0\\xc0\\x02\\x6f\\xc4\\x05\\xff\\xff\\xad\\xf0\\x6f\\xe8\\xc1\\x6a\\xc2\\x05\\x55\\xa4\\xd5\\x44\\x03\\x87\\xd3\\x10\\x07\\x65\\x10\\x3d\\xa9\\xb4\\xb1\\x84\\x48\\x88\\x20\\x59\\x4a\\x36\\x90\\x40\\xa7\\x68\\x40\\x0b\\x18\\x7c\\xb8\\x81\\x8c\\xb0\\x80\\x5a\\xb0\\x81\\x4f\\xd6\\xab\\x51\\xaa\\xd2\\x88\\x05\\xad\\x08\\x16\\x20\\x83\\xa5\\x52\\x89\\xa5\\xb5\\x88\\x18\\xd4\\xa1\\x04\\xca\\xb1\\x55\\x10\\x06\\x7d\\x05\\x04\\x20\\x81\\xac\\xa8\\x7c\\x22\\x30\\x22\\x06\\xb4\\x88\\x40\\xb2\\xb6\\xad\\x78\\x81\\x9d\\x29\\x8c\\x2a\\xae\\xa8\\x40\\xd6\\x98\\x7c\\x0e\\x55\\x50\\x08\\x81\\xbd\\x4d\\x56\\x8a\\x05\\x04\\x40\\xaf\\xd4\\x40\\x23\\x14\\x31\\x02\\xeb\\xc0\\x44\\x03\\xef\\xc4\\x0a\\xd5\\x44\\x01\\x69\\x43\\xe1\\xea\\x43\\xea\\x7f\\xff\\xda\\x5b\\xf8\\x80\\x63\\x0a\\xa2\\x00\\x75\\x5f\\xf0\\xd8\\x46\\x06\\x00\\x1f\\x80\\x3f\\x00\\x7e\\x00\\xfc\\x01\\xf8\\x03\\xe0"
+        `,
+        CorruptionToggle: `
+            "Camera Corruption": {
+                value: settings.camera.corruption,
+				format: a => a ? "On" : "Off",
+				onchange: a => {
+					settings.camera.corruption = a; // Save setting
+					saveSettings();
+				}
+			},
         `
     },
 
