@@ -51,7 +51,7 @@ window.Patches.AlarmPatch = {
                 // --- FIX: Add delay to prevent race condition with audioStopped event ---
                 setTimeout(() => {
                     try {
-                        let stationFiles = fs.readdirSync("RADIO/" + folderName).filter(f => f.toUpperCase().endsWith("WAV") && !f.startsWith(".") && f.toUpperCase().startsWith("MX"));
+                        let stationFiles = fs.readdirSync("RADIO/" + folderName).filter(f => f.toUpperCase().endsWith("WAV") && !f.startsWith("."));
                         if (!stationFiles.length) {
                             return reject("No WAV files in /RADIO/" + folderName);
                         }
