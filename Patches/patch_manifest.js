@@ -85,7 +85,7 @@ const PATCH_MANIFEST = {
 
     "CustomRadioPatch": {
         name: "Custom Radio Patch",
-        description: "Adds custom radios based on folders in the radio folder.",
+        description: "Adds custom radios based on folders in the radio folder. Pick from random and sequential play in the maintenance tab.",
         author: "Author: Aidan's Lab",
         file: _BASE_PATH + "Patches/CustomRadioPatch.js"
     },

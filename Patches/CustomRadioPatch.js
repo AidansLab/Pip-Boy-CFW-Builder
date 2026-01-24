@@ -2,7 +2,17 @@ window.Patches.CustomRadioPatch = {
 
 	// 'insert' objects are injected at insertion markers
 	insert: {
-		customFlag: `&& !Pip.radioCustom`
+		customFlag: `&& !Pip.radioCustom`,
+		RandomToggle: `
+            "Station Track Order": {
+                value: settings.radio.random,
+				format: a => a ? "Random" : "Sequential",
+				onchange: a => {
+					settings.radio.random = a; // Save setting
+					saveSettings();
+				}
+			},
+        `
 	},
 
 	replace: {
@@ -10,6 +20,11 @@ window.Patches.CustomRadioPatch = {
 // --- Ensure global flag for custom radio ---
 if (typeof Pip.radioCustom === 'undefined') Pip.radioCustom = false;
 Pip.radioCustom = false;
+if (!settings.radio) {
+    settings.radio = {
+        random: true
+    };
+}
 let submenuRadio = () =>
 {
 	rd._options || rd.setupI2C(), bC.clear(1);
@@ -32,9 +47,16 @@ let submenuRadio = () =>
 	for (let l = 0; l < 60; l += 2) c[l] = l * 2;
 
 	// --- New Helper Function ---
-	// This function plays a random track from a specified station folder.
+	// This function plays a track from a specified station folder.
+	// Uses random or sequential mode based on settings.radio.random
 	function playFromStationFolder(folderName) {
 		return new Promise((resolve, reject) => {
+			// Prevent concurrent calls - if already starting a track, ignore this call
+			if (Pip.radioStarting) {
+				return resolve(false);
+			}
+			Pip.radioStarting = true;
+
 			var onClipEnd = () => {
 				Pip.removeListener("audioStopped", onClipEnd);
 				Pip.radioClipPlaying = !1;
@@ -58,22 +80,67 @@ let submenuRadio = () =>
 				try {
 					// Check if station is still active after delay
 					if (Pip.customRadioState.activeStation !== folderName) {
+						Pip.radioStarting = false;
 						return resolve(false);
 					}
 
 					let stationFiles = fs.readdirSync("RADIO/" + folderName).filter(f => f.toUpperCase().endsWith("WAV") && !f.startsWith("."));
 					if (!stationFiles.length) {
+						Pip.radioStarting = false;
 						return reject("No WAV files in /RADIO/" + folderName);
 					}
 
-					let trackIndex = getRandomExcluding(stationFiles.length, Pip.lastClipIndex);
-					Pip.audioStart(\`RADIO/\${folderName}/\${stationFiles[trackIndex]}\`);
+					let trackToPlay;
+					if (settings.radio.random) {
+						// Random mode - shuffle without repeats
+						// Use a pool of unplayed songs and track played songs
+						if (!Pip.randomPool || Pip.randomStation !== folderName) {
+							// Build new random pool for this station
+							Pip.randomPool = stationFiles.slice();
+							Pip.playedSongs = [];
+							Pip.randomStation = folderName;
+							console.log("Random pool initialized:", Pip.randomPool);
+						}
+						
+						// If pool is empty, refill from played songs
+						if (Pip.randomPool.length === 0) {
+							Pip.randomPool = Pip.playedSongs.slice();
+							Pip.playedSongs = [];
+							console.log("Random pool refilled:", Pip.randomPool);
+						}
+						
+						// Pick a random song from the pool
+						let randomIndex = Math.floor(Math.random() * Pip.randomPool.length);
+						trackToPlay = Pip.randomPool[randomIndex];
+						
+						// Move song from pool to played
+						Pip.randomPool.splice(randomIndex, 1);
+						Pip.playedSongs.push(trackToPlay);
+						console.log("Playing random: " + trackToPlay + " (remaining: " + Pip.randomPool.length + ")");
+					} else {
+						// Sequential mode - build sorted playlist and play in order
+						// Use a shared array that is reused across all stations
+						if (!Pip.sequentialPlaylist || Pip.sequentialStation !== folderName) {
+							// Build new sorted playlist for this station
+							Pip.sequentialPlaylist = stationFiles.slice().sort();
+							console.log(Pip.sequentialPlaylist);
+							Pip.sequentialIndex = 0;
+							Pip.sequentialStation = folderName;
+						}
+						// Play directly from the sorted playlist
+						console.log("Playing index " + Pip.sequentialIndex + ": " + Pip.sequentialPlaylist[Pip.sequentialIndex]);
+						trackToPlay = Pip.sequentialPlaylist[Pip.sequentialIndex];
+						// Advance index for next play, wrap around
+						Pip.sequentialIndex = (Pip.sequentialIndex + 1) % Pip.sequentialPlaylist.length;
+					}
+					Pip.audioStart(\`RADIO/\${folderName}/\${trackToPlay}\`);
 					Pip.on("audioStopped", onClipEnd);
 					Pip.radioClipPlaying = !0;
-					Pip.lastClipIndex = trackIndex;
+					Pip.radioStarting = false;
 
 				} catch (e) {
 					log("Radio folder error: " + e);
+					Pip.radioStarting = false;
 					reject(e);
 				}
 			}, 50);
@@ -168,10 +235,26 @@ var menuConfig = {
 			if (a) {
 				Pip.radioCustom = false;
 				Pip.customRadioState.activeStation = "KPSS";
+				// Clear sequential playlist when switching to KPSS
+				Pip.sequentialPlaylist = null;
+				Pip.sequentialIndex = 0;
+				Pip.sequentialStation = null;
+				// Clear random pool when switching to KPSS
+				Pip.randomPool = null;
+				Pip.playedSongs = null;
+				Pip.randomStation = null;
 				Pip.audioStop();
 				radioPlayClip(CLIP_TYPE.VOICE);
 			} else {
 				Pip.customRadioState.activeStation = "NONE";
+				// Clear sequential playlist when KPSS is turned off
+				Pip.sequentialPlaylist = null;
+				Pip.sequentialIndex = 0;
+				Pip.sequentialStation = null;
+				// Clear random pool when KPSS is turned off
+				Pip.randomPool = null;
+				Pip.playedSongs = null;
+				Pip.randomStation = null;
 				Pip.audioStop();
 				Pip.audioStart("UI/RADIO_OFF.wav");
 			}
@@ -205,6 +288,14 @@ stationFolders.forEach(folderName => {
 			} else {
 				Pip.customRadioState.activeStation = "NONE";
 				Pip.radioCustom = false;
+				// Clear sequential playlist when station is stopped
+				Pip.sequentialPlaylist = null;
+				Pip.sequentialIndex = 0;
+				Pip.sequentialStation = null;
+				// Clear random pool when station is stopped
+				Pip.randomPool = null;
+				Pip.playedSongs = null;
+				Pip.randomStation = null;
 				Pip.audioStop();
 				Pip.audioStart("UI/RADIO_OFF.wav");
 			}
@@ -221,7 +312,7 @@ j();
 
 // --- Modified Music Logic Interval ---
 let h = setInterval(() => {
-	if (Pip.customRadioState.activeStation !== "NONE" && Pip.customRadioState.activeStation !== "KPSS" && !Pip.streamPlaying()) {
+	if (Pip.customRadioState.activeStation !== "NONE" && Pip.customRadioState.activeStation !== "KPSS" && !Pip.streamPlaying() && !Pip.radioStarting) {
 		// Custom station logic
 		playFromStationFolder(Pip.customRadioState.activeStation).catch(err => {
 			log("Station autoplay error: " + err);
@@ -252,11 +343,27 @@ function i(a) {
 		return;
 	}
 
-	// New Custom Station logic: Knob 2 stops the track
+	// New Custom Station logic: Knob 2 skips tracks
 	if (Pip.customRadioState.activeStation !== "NONE" && Pip.customRadioState.activeStation !== "KPSS") {
+		// Clear any pending state to prevent race conditions
+		Pip.removeAllListeners("audioStopped");
+		Pip.radioStarting = false;
+		Pip.radioClipPlaying = false;
+		
+		// In sequential mode, adjust the index based on knob direction
+		if (!settings.radio.random && Pip.sequentialPlaylist) {
+			if (a > 0) {
+				// Forward - index is already pointing to next track, no change needed
+			} else if (a < 0) {
+				// Backward - go back 2 (1 to undo the auto-advance, 1 more to go to previous)
+				Pip.sequentialIndex = Pip.sequentialIndex - 2;
+				if (Pip.sequentialIndex < 0) {
+					Pip.sequentialIndex = Pip.sequentialPlaylist.length + Pip.sequentialIndex;
+				}
+			}
+		}
 		Pip.audioStop();
-		// If you wanted to skip to the next track instead, you would use this line:
-		// playFromStationFolder(Pip.customRadioState.activeStation).catch(err => log("Station skip error: " + err));
+		playFromStationFolder(Pip.customRadioState.activeStation).catch(err => log("Station skip error: " + err));
 		return;
 	}
 
@@ -279,6 +386,14 @@ function i(a) {
 		Pip.radioKPSS = false;
 		Pip.radioCustom = false;
 		Pip.customRadioState.activeStation = "NONE"; // Clear custom station state
+		// Clear sequential playlist when leaving radio menu
+		Pip.sequentialPlaylist = null;
+		Pip.sequentialIndex = 0;
+		Pip.sequentialStation = null;
+		// Clear random pool when leaving radio menu
+		Pip.randomPool = null;
+		Pip.playedSongs = null;
+		Pip.randomStation = null;
 		clearInterval(h);
 		rd.tuningInterval && clearInterval(rd.tuningInterval), rd.tuningInterval = null, rd.rdsTimer && clearInterval(rd.rdsTimer), rd.rdsTimer = null, Pip.removeListener("knob2", i), b && clearTimeout(b), g()
 	}
