@@ -762,7 +762,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     if (sizeBytes > 131072) { // 128KB limit
                         sizeCounterDiv.style.color = '#ff4444'; // Red warning
                         sizeCounterDiv.style.fontWeight = 'bold';
-                        sizeCounterDiv.innerHTML += ' <span style="animation: blink 1s infinite">⚠ OVER LIMIT</span>';
+                        sizeCounterDiv.innerHTML += ' <span style="animation: blink 1s infinite">!! OVER LIMIT</span>';
 
                         // Disable patch button
                         patchButton.disabled = true;
