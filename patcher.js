@@ -595,6 +595,10 @@ document.addEventListener('DOMContentLoaded', () => {
             patchButton.disabled = false; // Re-enable button
             patchButton.textContent = 'Patch File';
             console.log(`${selectedFile} loaded successfully.`);
+
+            // Update size estimate immediately
+            updateSizeEstimate();
+
         } catch (error) {
             console.error('Error fetching firmware file:', error);
             alert(`Failed to load ${selectedFile}.\nError: ${error.message}`);
@@ -604,182 +608,295 @@ document.addEventListener('DOMContentLoaded', () => {
     });
 
 
-    // --- 4. Patching Logic ---
-    patchButton.addEventListener('click', () => {
+    // --- 4. Patching Logic (Refactored) ---
+
+    // Function to generate patched firmware content
+    // Returns: { content: string, size: number }
+    // If simulate=true, we skip things that are only needed for the final file download (like blob creation)
+    // but we MUST run minification/tokenisation to get accurate size.
+    async function generatePatchedFirmware(baseContent, selectedPatchKeys) {
+        let patchedContent = baseContent;
+
+        if (selectedPatchKeys.length > 0) {
+            // Apply patches
+            selectedPatchKeys.forEach(patchKey => {
+                const patchData = window.Patches[patchKey];
+                if (!patchData || typeof patchData !== 'object') {
+                    console.warn(`Patch data for ${patchKey} not found or invalid.`);
+                    return;
+                }
+
+                // Process Replacements
+                if (patchData.replace && typeof patchData.replace === 'object') {
+                    for (const regionName in patchData.replace) {
+                        patchedContent = applyReplacement(patchedContent, patchKey, regionName, patchData.replace[regionName]);
+                    }
+                }
+
+                // Process Insertions
+                if (patchData.insert && typeof patchData.insert === 'object') {
+                    for (const markerName in patchData.insert) {
+                        patchedContent = applyInsertion(patchedContent, patchKey, markerName, patchData.insert[markerName]);
+                    }
+                }
+
+                // Process Find/Replace Array
+                if (patchData.find && Array.isArray(patchData.find)) {
+                    patchData.find.forEach(job => {
+                        if (!job || typeof job.string !== 'string') return;
+
+                        let replacementString = '';
+                        const stringToFind = job.string;
+
+                        if (job.useInput === true) {
+                            const inputElement = document.getElementById(`patch-input-${patchKey}`);
+                            if (inputElement) {
+                                const newName = inputElement.value;
+                                if (newName && newName.trim() !== '') {
+                                    replacementString = '"' + newName.trim().replace(/"/g, '\\"') + '"';
+                                } else {
+                                    return; // Skip if empty
+                                }
+                            } else {
+                                return;
+                            }
+                        } else if (typeof job.replace === 'string') {
+                            replacementString = job.replace;
+                        } else {
+                            return;
+                        }
+
+                        const findRegex = new RegExp(escapeRegExp(stringToFind), 'g');
+                        patchedContent = patchedContent.replace(findRegex, replacementString);
+                    });
+                }
+            });
+
+            // Post-Patching Combination Checks
+            const hasSpecialPatch = selectedPatchKeys.includes('SpecialPatch');
+            const hasPerksPatch = selectedPatchKeys.includes('PerksPatch');
+
+            if (hasSpecialPatch && hasPerksPatch) {
+                const comboPatchKey = 'SpecialPerksCombo';
+                const comboRegionName = 'StatMenuItems';
+                const comboReplacementCode = `
+            CONN: submenuConnect,
+            DIAG: submenuDiagnostics`;
+                patchedContent = applyReplacement(patchedContent, comboPatchKey, comboRegionName, comboReplacementCode);
+            }
+        }
+
+        // Append epoch digits
+        patchedContent = appendEpochToVersion(patchedContent);
+
+        // --- Minification & Tokenisation ---
+        // Ensure Espruino config matches requested behavior
+        try {
+            if (window.Espruino && Espruino.Config) {
+                Espruino.Config.MINIFICATION_LEVEL = "ESPRIMA";
+                Espruino.Config.MODULE_MINIFICATION_LEVEL = "ESPRIMA";
+                Espruino.Config.MINIFICATION_Mangle = true;
+                Espruino.Config.PRETOKENISE = 2; // 'Yes (always tokenise everything)'
+            }
+        } catch (e) {
+            console.warn('Could not set Espruino.Config defaults', e);
+        }
+
+        // Minify
+        try {
+            const minified = Espruino.Plugins.Minify.preminify(patchedContent);
+            if (minified) patchedContent = minified;
+        } catch (e) {
+            console.warn('Minification failed, using original content.', e);
+        }
+
+        // Tokenise
+        try {
+            if (window.Espruino && Espruino.Plugins && Espruino.Plugins.Pretokenise && typeof Espruino.Plugins.Pretokenise.tokenise === 'function') {
+                const t = Espruino.Plugins.Pretokenise.tokenise(patchedContent);
+                if (t) {
+                    patchedContent = t;
+                }
+            }
+        } catch (e) {
+            console.warn('Pretokenise failed; proceeding with content.', e);
+        }
+
+        // Calculate size based on ANSI single-byte mapping (matches blob creation)
+        // We use code point & 0xFF, effectively assuming 1 byte per char for the binary parts
+        const size = patchedContent.length;
+
+        return { content: patchedContent, size: size };
+    }
+
+    // --- Update Size Estimate Function ---
+    const sizeCounterDiv = document.getElementById('size-counter');
+    let sizeUpdateTimeout = null;
+
+    async function updateSizeEstimate() {
+        if (!baseFileContent) {
+            if (sizeCounterDiv) sizeCounterDiv.innerHTML = 'Est. Size: -- / 120 KB';
+            return;
+        }
+
+        // Debounce updates to avoid freezing UI if user clicks rapidly
+        if (sizeUpdateTimeout) clearTimeout(sizeUpdateTimeout);
+
+        if (sizeCounterDiv) sizeCounterDiv.textContent = 'Calculating...';
+
+        sizeUpdateTimeout = setTimeout(async () => {
+            const selectedCheckboxElements = patchListDiv.querySelectorAll('input[type="checkbox"]:checked');
+            const selectedKeys = Array.from(selectedCheckboxElements).map(cb => cb.dataset.patchKey);
+
+            try {
+                // Determine which keys to use
+                // logic matches patchButton click
+
+                const result = await generatePatchedFirmware(baseFileContent, selectedKeys);
+                const sizeBytes = result.size;
+                const sizeKB = (sizeBytes / 1024).toFixed(2);
+
+                if (sizeCounterDiv) {
+                    sizeCounterDiv.innerHTML = `Est. Size: ${sizeKB} KB / 128 KB`;
+
+                    if (sizeBytes > 131072) { // 128KB limit
+                        sizeCounterDiv.style.color = '#ff4444'; // Red warning
+                        sizeCounterDiv.style.fontWeight = 'bold';
+                        sizeCounterDiv.innerHTML += ' <span style="animation: blink 1s infinite">⚠ OVER LIMIT</span>';
+
+                        // Disable patch button
+                        patchButton.disabled = true;
+                        patchButton.textContent = 'FIRMWARE SIZE TOO LARGE';
+                        patchButton.style.borderColor = '#ff4444';
+                        patchButton.style.color = '#ff4444';
+                    } else {
+                        sizeCounterDiv.style.color = ''; // Reset to default (likely inherited green/white)
+                        sizeCounterDiv.style.fontWeight = 'normal';
+
+                        // Re-enable patch button (if base content is loaded)
+                        if (baseFileContent) {
+                            patchButton.disabled = false;
+                            patchButton.textContent = 'PATCH FILE';
+                            patchButton.style.borderColor = '';
+                            patchButton.style.color = '';
+                        }
+                    }
+                }
+            } catch (e) {
+                console.error("Error calculating size:", e);
+                if (sizeCounterDiv) sizeCounterDiv.textContent = 'Size Error';
+            }
+        }, 50); // Short delay
+    }
+
+    // Hook up checkboxes dynamically
+    // We already do this in createPatchCheckbox, but we need to modify it or add a delegate listener
+    // Since createPatchCheckbox adds elements dynamically, a delegate on patchListDiv is better or we add it inside createPatchCheckbox.
+    // Let's modify createPatchCheckbox slightly or just rely on a global change listener on the container.
+    patchListDiv.addEventListener('change', (e) => {
+        if (e.target && e.target.type === 'checkbox') {
+            updateSizeEstimate();
+        }
+    });
+
+    // Also update when text inputs change
+    patchListDiv.addEventListener('input', (e) => {
+        if (e.target && (e.target.type === 'text' || e.target.tagName === 'INPUT')) {
+            // longer debounce for typing?
+            updateSizeEstimate();
+        }
+    });
+
+    // Update when FW loaded
+    // (Added to the FW load success block below)
+
+    patchButton.addEventListener('click', async () => {
         if (!baseFileContent) {
             alert('Please select a base FW version from the dropdown first.');
             return;
         }
 
-        downloadLink.download = selectedFileName; // Set download name based on selected FW
+        downloadLink.download = selectedFileName; // selectedFileName was updated in FW select listener
 
-        let patchedContent = baseFileContent;
         const selectedPatches = patchListDiv.querySelectorAll('input[type="checkbox"]:checked');
+        const selectedKeys = Array.from(selectedPatches).map(cb => cb.dataset.patchKey);
 
-        if (selectedPatches.length === 0) {
-            alert('No patches selected. Click Download to get the selected base FW file.');
-            // Minify the base firmware even if no patches are selected
-            let minifiedContent = patchedContent;
-            try {
-                if (window.Espruino && Espruino.Plugins && Espruino.Plugins.Minify && typeof Espruino.Plugins.Minify.preminify === 'function') {
-                    const m = Espruino.Plugins.Minify.preminify(patchedContent);
-                    if (m) minifiedContent = m;
-                }
-            } catch (e) {
-                console.warn('Minification failed or Minify plugin not available, using original content.', e);
-            }
-
-            // Allow downloading the base file if no patches selected
-            createDownloadLink(minifiedContent, selectedFileName.replace('_patched.js', '.js')); // Use original name
-            return;
+        if (selectedKeys.length === 0) {
+            const proceed = confirm('No patches selected. Do you want to generate the base firmware?');
+            if (!proceed) return;
         }
+
+        patchButton.disabled = true;
+        patchButton.textContent = 'Processing...';
 
         console.log("Starting patching process...");
 
         try {
-            selectedPatches.forEach(checkbox => {
-                const patchKey = checkbox.dataset.patchKey;
-                console.log(`Applying patch: ${patchKey}`);
-                const patchData = window.Patches[patchKey];
+            // Use current filename logic
+            // selectedFileName is set in FW select listener: e.g. FW_2v17_patched.js
 
-                // Robust check for patch data
-                if (!patchData || typeof patchData !== 'object') {
-                    const patchManifestInfo = PATCH_MANIFEST[patchKey];
-                    const scriptSrc = patchManifestInfo ? patchManifestInfo.file : 'Unknown script';
-                    throw new Error(`Patch data object for "${patchKey}" (from ${scriptSrc}) is missing or invalid. Check the patch script file and browser console for loading errors.`);
+            const result = await generatePatchedFirmware(baseFileContent, selectedKeys);
+            const finalContent = result.content;
+
+            // Check size again just in case
+            if (result.size > 131072) {
+                const proceed = confirm(`Warning: Firmware size (${(result.size / 1024).toFixed(2)} KB) exceeds the 120KB safe limit.\n\nWriting to flash will likely fail. Do you want to continue anyway?`);
+                if (!proceed) {
+                    patchButton.disabled = false;
+                    patchButton.textContent = 'Patch File';
+                    return;
                 }
-
-
-                // Process Replacements first
-                if (patchData.replace && typeof patchData.replace === 'object') {
-                    console.log(` -> Processing replacements for ${patchKey}`);
-                    for (const regionName in patchData.replace) {
-                        console.log(`    - Replacing region: ${regionName}`);
-                        patchedContent = applyReplacement(patchedContent, patchKey, regionName, patchData.replace[regionName]);
-                    }
-                } else {
-                    console.log(` -> No valid 'replace' object found for ${patchKey}`);
-                }
-
-                // Process Insertions
-                if (patchData.insert && typeof patchData.insert === 'object') {
-                    console.log(` -> Processing insertions for ${patchKey}`);
-                    for (const markerName in patchData.insert) {
-                        const fullMarker = `//${patchKey}Insert_${markerName}`; // Construct the full marker string
-
-                        console.log(`    - Inserting at marker: ${markerName}`);
-                        const insertionCode = patchData.insert[markerName];
-                        const originalLength = patchedContent.length; // Store length before insertion
-                        patchedContent = applyInsertion(patchedContent, patchKey, markerName, insertionCode);
-
-                        if (patchedContent.length > originalLength) {
-                            console.log(`    - Successfully inserted at ${fullMarker}`);
-                        }
-                    }
-                } else {
-                    console.log(` -> No valid 'insert' object found for ${patchKey}`);
-                }
-
-                // Process Find/Replace Array
-                if (patchData.find && Array.isArray(patchData.find)) {
-                    console.log(` -> Processing find/replace array for ${patchKey}`);
-
-                    // Loop through each find/replace job in the patch's 'find' array
-                    patchData.find.forEach(job => {
-                        if (!job || typeof job.string !== 'string') {
-                            console.warn(`    - Invalid job in find array for ${patchKey}. Skipping.`);
-                            return; // skip to next job
-                        }
-
-                        let replacementString = '';
-                        const stringToFind = job.string;
-
-                        // Check if this job uses the text input
-                        if (job.useInput === true) {
-                            const inputElement = document.getElementById(`patch-input-${patchKey}`);
-                            if (!inputElement) {
-                                console.warn(`    - Job for "${stringToFind}" needs text input, but none found for ${patchKey}. Skipping.`);
-                                return;
-                            }
-
-                            let newName = inputElement.value;
-                            if (!newName || newName.trim() === '') {
-                                console.log(`    - No new name provided in text box for "${stringToFind}". Skipping.`);
-                                return;
-                            }
-                            // Format as a JS string literal, wrapping in quotes
-                            replacementString = '"' + newName.trim().replace(/"/g, '\\"') + '"';
-
-                        }
-                        // Check if it's a hard-coded replacement
-                        else if (typeof job.replace === 'string') {
-                            replacementString = job.replace;
-                        }
-                        // If no replacement is defined, skip
-                        else {
-                            console.warn(`    - Job for "${stringToFind}" has no 'useInput' or 'replace' value. Skipping.`);
-                            return;
-                        }
-
-                        // 5. Create a global regex and replace all instances
-                        console.log(`    - Replacing all instances of ${stringToFind} with ${replacementString}`);
-                        const findRegex = new RegExp(escapeRegExp(stringToFind), 'g');
-                        const originalLength = patchedContent.length;
-
-                        patchedContent = patchedContent.replace(findRegex, replacementString);
-
-                        if (patchedContent.length === originalLength) {
-                            console.warn(`    - String ${stringToFind} was not found in the file.`);
-                        } else {
-                            console.log(`    - Successfully replaced ${stringToFind}.`);
-                        }
-                    }); // End of find.forEach
-                }
-
-                console.log(` -> Finished patch: ${patchKey}`);
-            }); // --- END of selectedPatches.forEach ---
-
-            // --- Post-Patching Combination Checks ---
-            console.log("Checking for patch combinations...");
-            // Create an array of the keys of the selected patches
-            const selectedKeys = Array.from(selectedPatches).map(cb => cb.dataset.patchKey);
-
-            // Check if both 'SpecialPatch' and 'PerksPatch' are in the array
-            const hasSpecialPatch = selectedKeys.includes('SpecialPatch');
-            const hasPerksPatch = selectedKeys.includes('PerksPatch');
-
-            // If both patches were selected, apply the special replacement
-            if (hasSpecialPatch && hasPerksPatch) {
-                console.log(" -> Applying SpecialPatch + PerksPatch combination replacement.");
-                const comboPatchKey = 'SpecialPerksCombo'; // Our virtual key
-                const comboRegionName = 'StatMenuItems';    // Matches markers added to base FW
-                const comboReplacementCode = `
-            CONN: submenuConnect,
-            DIAG: submenuDiagnostics`; // The new code to insert
-
-                // Use the existing applyReplacement function
-                patchedContent = applyReplacement(patchedContent, comboPatchKey, comboRegionName, comboReplacementCode);
-            } else {
-                console.log(" -> Special/Perks combination conditions not met.");
             }
-            // --- END Combination Checks ---
 
-            console.log("Patching process complete.");
+            // Create Blob
+            let blob;
+            try {
+                const buf = new Uint8Array(finalContent.length);
+                for (let i = 0; i < finalContent.length; i++) {
+                    const code = finalContent.charCodeAt(i);
+                    buf[i] = code & 0xFF; // ANSI single-byte mapping
+                }
+                blob = new Blob([buf], { type: 'text/javascript' });
+            } catch (e) {
+                console.warn('Failed to create ANSI blob, falling back to UTF-8 blob', e);
+                blob = new Blob([finalContent], { type: 'text/javascript;charset=utf-8' });
+            }
 
-            // --- 5. Append epoch digits to VERSION ---
-            patchedContent = appendEpochToVersion(patchedContent);
+            const url = URL.createObjectURL(blob);
+            downloadLink.href = url;
+            // downloadLink.download is already set
+            downloadLink.style.display = 'block';
+            console.log("Download link created.");
 
-            // --- 6. Create Download ---
-            createDownloadLink(patchedContent, selectedFileName);
+            // Store the generated firmware and enable the Write buttons
+            generatedFirmware = finalContent;
+            writeSDButton.disabled = false;
+            writeSDButton.textContent = 'WRITE TO SD CARD';
+            writeFlashButton.disabled = false;
+            writeFlashButton.textContent = 'WRITE TO FLASH';
 
+            // Also enable install-from-sd if connected
+            if (activePort) {
+                // installButton logic handled elsewhere? 
+                // install-from-sd-button is always visible/enabled in index HTML? 
+                // Ah, check the button ID.
+                const installBtn = document.getElementById('install-from-sd-button');
+                if (installBtn) installBtn.disabled = false;
+            }
+
+            patchButton.disabled = false;
+            patchButton.textContent = 'Patch File';
+
+            alert(`File ready! Size: ${(result.size / 1024).toFixed(2)} KB\n\nClick the download link below, write to SD card, or write to flash.`);
 
         } catch (error) {
-            console.error("Error during patching loop:", error); // Log specific error
-            alert(`An error occurred during patching:\n${error.message}\nCheck the console (F12) for more details.`);
-            downloadLink.style.display = 'none'; // Hide link on error
+            console.error("Error during patching:", error);
+            alert(`An error occurred:\n${error.message}`);
+            downloadLink.style.display = 'none';
+            patchButton.disabled = false;
+            patchButton.textContent = 'Patch File';
         }
-    }); // End of patchButton listener
-
+    });
     /**
      * Creates the download link.
      */
@@ -1062,6 +1179,13 @@ document.addEventListener('DOMContentLoaded', () => {
             return;
         }
 
+        // Check for 120KB limit (approx. 131072 bytes) to ensure safe flashing
+        if (generatedFirmware.length > 131072) {
+            const sizeKB = (generatedFirmware.length / 1024).toFixed(2);
+            alert(`Error: Firmware size (${sizeKB} KB) exceeds the safe 120KB limit for Flash storage.\n\nPlease disable some patches to reduce the file size below 120KB.`);
+            return;
+        }
+
         if (!isConnected || !activePort) {
             alert('Please connect to Pip-Boy first using the Connect button!');
             return;
@@ -1231,6 +1355,13 @@ document.addEventListener('DOMContentLoaded', () => {
     async function writeToFlash() {
         if (!generatedFirmware) {
             alert('Please generate patched firmware first!');
+            return;
+        }
+
+        // Check for 120KB limit (approx. 131072 bytes) to ensure safe flashing
+        if (generatedFirmware.length > 131072) {
+            const sizeKB = (generatedFirmware.length / 1024).toFixed(2);
+            alert(`Error: Firmware size (${sizeKB} KB) exceeds the safe 120KB limit for Flash storage.\n\nPlease disable some patches to reduce the file size below 120KB.`);
             return;
         }
 

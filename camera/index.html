@@ -1,0 +1,285 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Pip-Cam Installer</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Share+Tech+Mono&display=swap" rel="stylesheet">
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Share Tech Mono', monospace;
+            background: #0a0a0a;
+            color: #00ff41;
+            padding: 20px;
+            min-height: 100vh;
+            background-image:
+                repeating-linear-gradient(0deg,
+                    rgba(0, 255, 65, 0.03) 0px,
+                    transparent 1px,
+                    transparent 2px,
+                    rgba(0, 255, 65, 0.03) 3px);
+            animation: scanlines 8s linear infinite;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        @keyframes scanlines {
+            0% {
+                background-position: 0 0;
+            }
+
+            100% {
+                background-position: 0 100%;
+            }
+        }
+
+        @keyframes flicker {
+
+            0%,
+            100% {
+                opacity: 1;
+            }
+
+            50% {
+                opacity: 0.97;
+            }
+        }
+
+        @keyframes glow {
+
+            0%,
+            100% {
+                text-shadow:
+                    0 0 5px #00ff41,
+                    0 0 10px #00ff41,
+                    0 0 20px #00ff41;
+            }
+
+            50% {
+                text-shadow:
+                    0 0 2px #00ff41,
+                    0 0 5px #00ff41,
+                    0 0 10px #00ff41;
+            }
+        }
+
+        .container {
+            width: 100%;
+            max-width: 600px;
+            background: rgba(0, 20, 0, 0.9);
+            padding: 30px;
+            border: 3px solid #00ff41;
+            box-shadow:
+                inset 0 0 30px rgba(0, 255, 65, 0.1),
+                0 0 30px rgba(0, 255, 65, 0.3);
+            position: relative;
+            animation: flicker 0.15s infinite;
+            text-align: center;
+        }
+
+        .container::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background:
+                repeating-linear-gradient(90deg,
+                    rgba(0, 255, 65, 0.03) 0px,
+                    transparent 2px,
+                    transparent 4px,
+                    rgba(0, 255, 65, 0.03) 6px);
+            pointer-events: none;
+        }
+
+        h1 {
+            font-size: 2.5em;
+            margin-bottom: 10px;
+            text-transform: uppercase;
+            letter-spacing: 3px;
+            animation: glow 2s ease-in-out infinite;
+            padding-bottom: 1px;
+        }
+
+        .subtitle {
+            font-size: 1.2em;
+            margin-bottom: 14px;
+            opacity: 0.8;
+            text-transform: uppercase;
+            letter-spacing: 2px;
+        }
+
+        button {
+            font-family: 'Share Tech Mono', monospace;
+            background: #001a00;
+            color: #00ff41;
+            border: 3px solid #00ff41;
+            padding: 20px 40px;
+            font-size: 1.5em;
+            font-weight: bold;
+            cursor: pointer;
+            width: 100%;
+            transition: all 0.3s ease;
+            text-transform: uppercase;
+            letter-spacing: 2px;
+            position: relative;
+            overflow: hidden;
+            margin-bottom: 20px;
+            animation: glow 2s ease-in-out infinite;
+        }
+
+        button:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+            animation: none;
+            border-color: #005515;
+            color: #005515;
+        }
+
+        button:not(:disabled):hover {
+            background: rgba(0, 255, 65, 0.2);
+            box-shadow:
+                inset 0 0 20px rgba(0, 255, 65, 0.3),
+                0 0 20px rgba(0, 255, 65, 0.5);
+            transform: scale(1.02);
+        }
+
+        button:not(:disabled):active {
+            transform: scale(0.98);
+        }
+
+        #status-area {
+            border: 2px solid #00ff41;
+            background: rgba(0, 255, 65, 0.05);
+            padding: 20px;
+            height: 200px;
+            text-align: left;
+            margin-top: 5px;
+            position: relative;
+            overflow-y: auto;
+        }
+
+        .log-entry {
+            margin-bottom: 5px;
+            font-size: 0.9em;
+            line-height: 1.4;
+            word-wrap: break-word;
+        }
+
+        .log-entry.error {
+            color: #ff3333;
+            text-shadow: 0 0 5px #ff0000;
+        }
+
+        .log-entry.success {
+            color: #33ff33;
+            font-weight: bold;
+        }
+
+        .log-entry.warn {
+            color: #ffaa00;
+        }
+
+        .corner-bracket {
+            position: absolute;
+            width: 20px;
+            height: 20px;
+            border: 2px solid #00ff41;
+        }
+
+        .corner-bracket.tl {
+            top: -2px;
+            left: -2px;
+            border-right: none;
+            border-bottom: none;
+        }
+
+        .corner-bracket.tr {
+            top: -2px;
+            right: -2px;
+            border-left: none;
+            border-bottom: none;
+        }
+
+        .corner-bracket.bl {
+            bottom: -2px;
+            left: -2px;
+            border-right: none;
+            border-top: none;
+        }
+
+        .corner-bracket.br {
+            bottom: -2px;
+            right: -2px;
+            border-left: none;
+            border-top: none;
+        }
+    </style>
+</head>
+
+<body>
+    <div class="container">
+        <div class="corner-bracket tl"></div>
+        <div class="corner-bracket tr"></div>
+        <div class="corner-bracket bl"></div>
+        <div class="corner-bracket br"></div>
+
+        <h1>PIP-CAM MODULE INSTALLER</h1>
+        <div class="subtitle">Requires <a style="color: #00ff41;" target="_blank"
+                href="https://aidanslab.github.io/store/pip-cam.html">Pip-Cam Accessory</a>
+        </div>
+        <div style="border-bottom: 2px solid #00ff41; margin-bottom: 20px;"></div>
+
+        <button id="install-button">INITIALIZE CONNECTION & INSTALL</button>
+
+        <div id="status-area">
+            <div class="log-entry">> WAITING FOR INPUT...</div>
+        </div>
+    </div>
+
+    <!-- Load Patch Manifest & Firmware Manifest -->
+    <script>
+        // Set base path for loading scripts if needed
+        window.CFW_BUILDER_BASE_PATH = '../';
+        window.Patches = {};
+    </script>
+    <script src="../Patches/patch_manifest.js"></script>
+    <script src="../Firmware/fw_manifest.js"></script>
+
+    <!-- Acorn (Required for pretokenise) -->
+    <script src="../libs/acorn/acorn.js"></script>
+
+    <!-- Espruino Tools -->
+    <script src="../EspruinoTools/espruino.js"></script>
+    <script src="../EspruinoTools/core/serial.js"></script>
+    <script src="../EspruinoTools/core/serial_web_serial.js"></script>
+    <script src="../EspruinoTools/core/config.js"></script>
+    <script src="../EspruinoTools/core/utils.js"></script>
+    <script src="../EspruinoTools/core/env.js"></script>
+
+    <!-- Parser/Minifier Tools (needed for patching) -->
+    <script src="../EspruinoTools/plugins/minify.js"></script>
+    <script src="../EspruinoTools/plugins/pretokenise.js"></script>
+    <script src="../EspruinoTools/libs/esprima/esprima.js"></script>
+    <script src="../EspruinoTools/libs/esprima/esmangle.js"></script>
+    <script src="../EspruinoTools/libs/esprima/escodegen.js"></script>
+
+    <!-- Untokenize (provides preminify implementation) -->
+    <script src="../untokenize.js"></script>
+
+    <!-- Installer Logic -->
+    <script src="installer.js"></script>
+</body>
+
+</html>
