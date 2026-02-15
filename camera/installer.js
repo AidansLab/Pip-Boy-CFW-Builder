@@ -219,15 +219,13 @@ async function startInstallation() {
         await writeCommand('\x10echo(0);\n'); // Turn off echo
         await delay(500);
 
-        log("Checking for VERSION file on SD card...");
+        log("Checking firmware version...");
 
         // Clear buffer (important to remove previous noise)
         serialDataBuffer = '';
 
-        // Send read command
-        // Using \x10 to echo off might help, but let's stick to what works.
-        // Wrap in try-catch on device properly.
-        await writeCommand(`\x10var c; try{c=require("fs").readFile("VERSION");}catch(e){c=null;} if(c) print("V:" + c); else print("V:NONE");\n`);
+        // Read VERSION variable directly
+        await writeCommand(`\x10if(typeof VERSION!=="undefined") print("V:" + VERSION); else print("V:NONE");\n`);
 
         // Wait for response
         let version = null;

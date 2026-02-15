@@ -154,6 +154,7 @@ document.addEventListener('DOMContentLoaded', () => {
     let selectedFileName = 'FW_patched.js';
     let patchScriptsLoaded = 0;
     let generatedFirmware = null;
+    let generatedVersionString = null;
     let firmwareVersion = null;
     let activePort = null;
     let serialDataBuffer = ''; // Buffer for incoming serial data
@@ -687,7 +688,9 @@ document.addEventListener('DOMContentLoaded', () => {
         }
 
         // Append epoch digits
-        patchedContent = appendEpochToVersion(patchedContent);
+        const versionResult = appendEpochToVersion(patchedContent);
+        patchedContent = versionResult.content;
+        const currentVersion = versionResult.version;
 
         // --- Minification & Tokenisation ---
         // Ensure Espruino config matches requested behavior
@@ -726,7 +729,7 @@ document.addEventListener('DOMContentLoaded', () => {
         // We use code point & 0xFF, effectively assuming 1 byte per char for the binary parts
         const size = patchedContent.length;
 
-        return { content: patchedContent, size: size };
+        return { content: patchedContent, size: size, version: currentVersion };
     }
 
     // --- Update Size Estimate Function ---
@@ -837,6 +840,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
             const result = await generatePatchedFirmware(baseFileContent, selectedKeys);
             const finalContent = result.content;
+            generatedVersionString = result.version;
 
             // Check size again just in case
             if (result.size > 131072) {
@@ -977,15 +981,22 @@ document.addEventListener('DOMContentLoaded', () => {
     // --- Function to append epoch digits to VERSION ---
     function appendEpochToVersion(content) {
         const epochLast3 = Math.floor(Date.now() / 1000) % 1000;
+        let finalVersionString = null;
         const versionRegex = /(const\s+VERSION\s*=\s*["'])([0-9.]+)(["'])/g;
 
         const updatedContent = content.replace(versionRegex, (match, prefix, version, suffix) => {
             const newVersion = `${version}.${epochLast3}`;
+            finalVersionString = newVersion;
             console.log(`Updated VERSION from ${version} to ${newVersion}`);
             return `${prefix}${newVersion}${suffix}`;
         });
 
-        return updatedContent;
+        // Fallback if regex didn't match
+        if (!finalVersionString) {
+            finalVersionString = firmwareVersion ? `${firmwareVersion}.${epochLast3}` : `unknown.${epochLast3}`;
+        }
+
+        return { content: updatedContent, version: finalVersionString };
     }
 
     // --- Helper to read response from device ---
@@ -1275,9 +1286,8 @@ document.addEventListener('DOMContentLoaded', () => {
             await writeCommand('\x10try{require("fs").unlink("VERSION");}catch(e){}\n');
             await delay(300);
 
-            // Create version string with epoch suffix
-            const epochLast3 = Math.floor(Date.now() / 1000) % 1000;
-            const versionString = firmwareVersion ? `${firmwareVersion}.${epochLast3}` : `unknown.${epochLast3}`;
+            // Use version string generated during patching (or fallback if missing)
+            const versionString = generatedVersionString || (firmwareVersion ? `${firmwareVersion}.000` : `unknown.000`);
             console.log(`Writing VERSION file with content: ${versionString}`);
 
             // Write VERSION file using Espruino file protocol with fs:1 for SD card
@@ -1432,6 +1442,54 @@ document.addEventListener('DOMContentLoaded', () => {
             writeFlashButton.textContent = 'COMPLETING...';
 
             await drainReadBuffer(300);
+
+            // --- Write VERSION to Flash ---
+            console.log('Writing VERSION file to Flash...');
+            writeFlashButton.textContent = 'WRITING VER (FLASH)...';
+            await writeCommand('\x10g.clearRect(0,140,478,319);g.drawString("Writing VERSION (Flash)...",240,160,true);\n');
+            await delay(100);
+
+            // Delete old VERSION file on Flash if it exists
+            await writeCommand('\x10try{require("Storage").erase("VERSION");}catch(e){}\n');
+            await delay(300);
+
+            // Use version string generated during patching (or fallback if missing)
+            const versionString = generatedVersionString || (firmwareVersion ? `${firmwareVersion}.000` : `unknown.000`);
+            console.log(`Writing VERSION file with content: ${versionString}`);
+
+            // Write VERSION file using Espruino file protocol to Flash (fs:0)
+            await espruinoSendFile("VERSION", versionString, {
+                fs: false,
+                progress: (chunkNo, chunkCount) => {
+                    // small file, might not show progress
+                }
+            });
+            await delay(200);
+
+            // --- Write VERSION to SD ---
+            console.log('Writing VERSION file to SD...');
+            writeFlashButton.textContent = 'WRITING VER (SD)...';
+            await writeCommand('\x10g.clearRect(0,140,478,319);g.drawString("Writing VERSION (SD)...",240,160,true);\n');
+            await delay(100);
+
+            // Delete old VERSION file on SD if it exists
+            await writeCommand('\x10try{require("fs").unlink("VERSION");}catch(e){}\n');
+            await delay(300);
+
+            // Write VERSION file using Espruino file protocol to SD (fs:1)
+            try {
+                await espruinoSendFile("VERSION", versionString, {
+                    fs: true,
+                    progress: (chunkNo, chunkCount) => {
+                        // small file
+                    }
+                });
+                console.log('VERSION file written to SD successfully.');
+            } catch (e) {
+                console.warn("Failed to write VERSION to SD (maybe no SD card or write error)", e);
+                // Continue despite failure, as flash write succeeded
+            }
+            await delay(200);
 
             // Upload resources for enabled patches
             writeFlashButton.textContent = 'UPLOADING RESOURCES...';
