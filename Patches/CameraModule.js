@@ -55,35 +55,64 @@ let submenuCamera = () =>
 
     let busy = 0; //State is either 0 not busy, 1 busy, 2 managing pics.
 
-    let palBuffer = new Uint16Array(16);
-    let cR = 0, cG = 1, cB = 0; // Default to Green if settings are missing
-    
-    if (settings.color) {
-        // Normalize 0-255 settings to 0.0-1.0
-        cR = (settings.color.r !== undefined ? settings.color.r : 0) / 255;
-        cG = (settings.color.g !== undefined ? settings.color.g : 255) / 255;
-        cB = (settings.color.b !== undefined ? settings.color.b : 0) / 255;
+    // Port of the 3000a's generatePalette for better temporal dithering
+    // Converts RGB to HSV, then generates 4 palette variants with different
+    // brightness offsets so the hardware can cycle between them per-scanline
+    function generateCamPalette() {
+        let cR = 0, cG = 255, cB = 0;
+        if (settings.color) {
+            cR = settings.color.r !== undefined ? settings.color.r : 0;
+            cG = settings.color.g !== undefined ? settings.color.g : 255;
+            cB = settings.color.b !== undefined ? settings.color.b : 0;
+        }
+        // RGB to HSV
+        let r = cR/255, gr = cG/255, b = cB/255;
+        let max = Math.max(r, gr, b), min = Math.min(r, gr, b);
+        let h, s, d = max - min;
+        s = max == 0 ? 0 : d / max;
+        if (max == min) h = 0;
+        else if (max == r) h = ((gr - b) / d + (gr < b ? 6 : 0)) / 6;
+        else if (max == gr) h = ((b - r) / d + 2) / 6;
+        else h = ((r - gr) / d + 4) / 6;
+        let v = E.clip(max, 0.03, 1);
+
+        // Generate 4 palette variants (3000a approach)
+        let CLIP = a => a > 255 ? 255 : a;
+        let pal = [new Uint16Array(16), new Uint16Array(16), new Uint16Array(16), new Uint16Array(16)];
+        for (let i = 0; i < 16; i++) {
+            let br = 220 * i >> 4;
+            let c = 255 * i >> 4;
+            let sat = 1 - Math.max(0, (i - 8) / 50);
+            pal[0][i] = E.HSBtoRGB(h, s * sat, (24 + br) / 255 * v, 16);
+            pal[1][i] = E.HSBtoRGB(h, s * sat, (18 + (3 * br >> 2)) / 255 * v, 16);
+            pal[2][i] = E.HSBtoRGB(h, 0.9 * s * sat, CLIP(32 + c) / 255 * v, 16);
+            pal[3][i] = E.HSBtoRGB(h, 0.9 * s * sat, CLIP(16 + c) / 255 * v, 16);
+        }
+        return pal;
     }
 
-    // Populate the 16-color palette
-    for (let i = 0; i < 16; i++) {
-        // Map index 0-15 to 0.0-1.0 intensity
-        let intensity = i / 15;
-        
-        // Create color using the system theme ratios
-        palBuffer[i] = g.toColor(intensity * cR, intensity * cG, intensity * cB);
+    // Apply the 3000a-style palette for better image dithering
+    if (Pip.setPalette) {
+        let camPal = generateCamPalette();
+        // Force index 0 to pure black so backgrounds remain transparent
+        camPal[0][0] = 0;
+        camPal[1][0] = 0;
+        camPal[2][0] = 0;
+        camPal[3][0] = 0;
+        Pip.setPalette(camPal);
     }
-    
-    // Assign the generated palette to sysPalette
-    const sysPalette = palBuffer;
+
+    // Keep the sysPalette for drawImage mapping (grayscale RGB565)
+    const sysPalette = new Uint16Array([0, 42260, 54970, 65535]);
 
     function drawPicture()
     {
-        g.clearRect(0, 51, 480, 290);
+        bC.clear().flip();
 
         if(imageArray.length == 0)
         {
-            g.setFontMonofonto18().setFontAlign(0, 0).drawString("NO IMAGES", g.getWidth()/2, g.getHeight()/2);
+            bC.setFontMonofonto18().setFontAlign(0, 0).drawString("NO IMAGES", g.getWidth()/2, g.getHeight()/2);
+            bC.flip();
             busy = 0;
             return;
         }
@@ -99,10 +128,11 @@ let submenuCamera = () =>
             return;
         }
 
-        if (fs.statSync("IMGS/"+imageArray[fileIndex]).size < 30000)
+        if (fs.statSync("IMGS/"+imageArray[fileIndex]).size < 20000)
         {
-            g.setFontAlign(0, 0);
-            g.setFontMonofonto18().setFontAlign(0, 0).drawString("Image corrupt, try reconverting", g.getWidth()/2, g.getHeight()/2);
+            bC.setFontAlign(0, 0);
+            bC.setFontMonofonto18().setFontAlign(0, 0).drawString("Image corrupt, try reconverting", g.getWidth()/2, g.getHeight()/2);
+            bC.flip();
             f.close();
             busy = 0;
             return;
@@ -125,8 +155,8 @@ let submenuCamera = () =>
 
         // Calculate Centering
         // Screen is 400x210
-        const screenW = g.getWidth(); 
-        const screenH = g.getHeight()+4;
+        const screenW = bC.getWidth(); 
+        const screenH = bC.getHeight()+4;
 
         const startX = Math.floor((screenW - imgW) / 2);
         const startY = Math.floor((screenH - imgH) / 2); // Vertical center
@@ -167,17 +197,18 @@ let submenuCamera = () =>
                 if (chunk) {
                     if (startY + y >= 0 && startY + y < screenH) {
                         lineView.set(E.toUint8Array(chunk));
-                        g.drawImage(lineImg, startX, startY + y);
+                        bC.drawImage(lineImg, startX, startY + y);
                     }
                 }
                 y++;
             }
+            bC.flip();
         }, 10);
     }
 
     function bCCleanup()
     {
-        if (bC) { bC.buffer = undefined; bC = undefined; }
+        //if (bC) { bC.buffer = undefined; bC = undefined; }
         process.memory(true);
         E.defrag();
     }
@@ -203,7 +234,7 @@ let submenuCamera = () =>
 
     function clearThrobberArea()
     {
-        g.clearRect(190, 110, 290, 210);
+        bC.clear().flip();
     }
 
     function startThrobber()
@@ -212,10 +243,10 @@ let submenuCamera = () =>
         ThrobberInterval = setInterval(function ()
         {
             clearThrobberArea();
-            g.drawImage(Throbbers.open, 190, 110);
+            g.drawImage(Throbbers.open, 190, 110).flip();
             ThrobberTimeout = setTimeout(function() {
                 clearThrobberArea();
-                g.drawImage(Throbbers.closed, 190, 110);
+                g.drawImage(Throbbers.closed, 190, 110).flip();
             }, 400);
 
             if (Date.now() - picStart > 5000)
@@ -225,10 +256,11 @@ let submenuCamera = () =>
                 clearTimeout(ThrobberTimeout);
                 ThrobberTimeout = null;
                 busy = 0;
-                g.clearRect(0, 51, 480, 290);
-                g.setFontMonofonto18().setFontAlign(0, 0);
-                g.drawString("ERROR TAKING PICTURE", g.getWidth()/2, (g.getHeight()/2)-10);
-                g.drawString("EXIT AND REOPEN APP AND TRY AGAIN", g.getWidth()/2, (g.getHeight()/2)+10);
+                bC.clear().flip();
+                bC.setFontMonofonto18().setFontAlign(0, 0);
+                bC.drawString("ERROR TAKING PICTURE", g.getWidth()/2, (g.getHeight()/2)-10);
+                bC.drawString("EXIT AND REOPEN APP AND TRY AGAIN", g.getWidth()/2, (g.getHeight()/2)+10);
+                bC.flip();
             }
         }, 800);
     }
@@ -236,6 +268,12 @@ let submenuCamera = () =>
     function handlePowerButton()
     {
         saveSettings();
+        // Restore the user's original MK V palette before exiting
+        if (Pip.setPalette && settings.palette) {
+            try {
+                Pip.setPalette(settings.palette.split(",").map(a => new Uint16Array(E.toArrayBuffer(atob(a)))));
+            } catch(e) {}
+        }
         if (g.reset) g.reset();
         removeButtonListeners();
         reset();
@@ -263,7 +301,7 @@ let submenuCamera = () =>
             if(imageArray.length==0 || !camConnected) return;
             busy = 1;
             console.log("Reconvert," + settings.camera.brightness + "," + settings.camera.contrast + "\\n");
-            g.clearRect(0, 51, 480, 290);
+            bC.clear().flip();
             startThrobber();
         } else {
             //console.log("Brightness: " + dir);
@@ -284,21 +322,23 @@ let submenuCamera = () =>
 
         if(fs.getFree().freeSectors-92<3)
         {
-            g.clearRect(0, 51, 480, 290);
-            g.setFontMonofonto18().setFontAlign(0, 0).drawString("NOT ENOUGH FREE SPACE ON SD", g.getWidth()/2, g.getHeight()/2);
+            bC.clear().flip();
+            bC.setFontMonofonto18().setFontAlign(0, 0).drawString("NOT ENOUGH FREE SPACE ON SD", g.getWidth()/2, g.getHeight()/2);
+            bC.flip();
             return;
         } else
         if(process.memory(false).free-6<600)
         {
-            g.clearRect(0, 51, 480, 290);
-            g.setFontMonofonto18().setFontAlign(0, 0).drawString("NOT ENOUGH MEMORY", g.getWidth()/2, g.getHeight()/2);
+            bC.clear().flip();
+            bC.setFontMonofonto18().setFontAlign(0, 0).drawString("NOT ENOUGH MEMORY", g.getWidth()/2, g.getHeight()/2);
+            bC.flip();
             return;
         }
         
         busy = 1;
         saveSettings();
         console.log("TakePic," + settings.camera.brightness + "," + settings.camera.contrast + "," + settings.camera.corruption + "\\n");
-        g.clearRect(0, 51, 480, 290);
+        bC.clear().flip();
         startThrobber();
     }
 
@@ -439,7 +479,7 @@ let submenuCamera = () =>
     function DisplaySetup()
     {
         bH.clear().flip();
-        if (bC !== undefined) { bC.clear().flip(); }
+        //if (bC !== undefined) { bC.clear().flip(); }
         bF.setBgColor(0).clear().flip();
         bH.setFontMonofonto36().setFontAlign(0, -1).setColor(13);
         bH.drawString("PIP-CAM", bH.getWidth()/2, 0).flip();
@@ -539,6 +579,13 @@ let submenuCamera = () =>
     HandlerSetup();
     bCCleanup();
     drawPicture();
+
+    // Register Pip.remove so the firmware's idle sleep timer can cleanly exit the camera app.
+    // When Pip.offOrSleep fires, it calls Pip.remove() before sleeping.
+    // We reboot to ensure a completely clean state on wake.
+    Pip.remove = function() {
+        handlePowerButton();
+    };
 }
         `,
 

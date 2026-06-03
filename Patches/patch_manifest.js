@@ -11,7 +11,7 @@ const PATCH_MANIFEST = {
 
     "InvPatch": {
         name: "Inventory Patch",
-        description: "Adds items menu to the inventory tab.",
+        description: "Adds items menu to the inventory tab. Edit with this(https://aidanslab.github.io/Pip-Boy-Inventory-JSON-Generator/index.html) tool.",
         author: "Author: Aidan's Lab",
         file: _BASE_PATH + "Patches/InvPatch.js",
         resources: {

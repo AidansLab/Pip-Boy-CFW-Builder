@@ -12,5 +12,10 @@ const FW_VERSIONS = {
         name: "FW Version 1.31",
         file: "FW_1.31.js",
         espversion: "2v25.376"
+    },
+    "1.32": {
+        name: "FW Version 1.32",
+        file: "FW_1.32.js",
+        espversion: "2v25.376"
     }
 };

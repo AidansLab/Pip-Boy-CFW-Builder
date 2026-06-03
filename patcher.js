@@ -490,6 +490,11 @@ document.addEventListener('DOMContentLoaded', () => {
                 return;
             }
 
+            // Do not toggle when clicking hyperlinks in descriptions
+            if (target.tagName === 'A' || target.closest('a')) {
+                return;
+            }
+
             checkbox.checked = !checkbox.checked;
             checkbox.dispatchEvent(new Event('change', { bubbles: true }));
         });
@@ -520,9 +525,38 @@ document.addEventListener('DOMContentLoaded', () => {
         }
         // --- End Text Input ---
 
-        // Create Description
+        // Create Description (supports hyperlinks via "link text(url)" syntax)
         const description = document.createElement('p');
-        description.textContent = patchInfo.description;
+        const descText = patchInfo.description || '';
+        // Match patterns like: word(https://example.com) — only the word before () becomes the link
+        const linkRegex = /(\S+)\((https?:\/\/[^\s)]+)\)/g;
+        let lastIndex = 0;
+        let match;
+        while ((match = linkRegex.exec(descText)) !== null) {
+            // Add any text before this match
+            if (match.index > lastIndex) {
+                description.appendChild(document.createTextNode(descText.slice(lastIndex, match.index)));
+            }
+            // Create the anchor element
+            const anchor = document.createElement('a');
+            anchor.href = match[2];
+            anchor.textContent = match[1];
+            anchor.target = '_blank';
+            anchor.rel = 'noopener noreferrer';
+            anchor.style.color = '#00ff41';
+            anchor.style.textDecoration = 'underline';
+            anchor.addEventListener('click', (e) => e.stopPropagation());
+            description.appendChild(anchor);
+            lastIndex = linkRegex.lastIndex;
+        }
+        // Add any remaining text after the last match
+        if (lastIndex < descText.length) {
+            description.appendChild(document.createTextNode(descText.slice(lastIndex)));
+        }
+        // Fallback if no links were found — just set plain text
+        if (lastIndex === 0) {
+            description.textContent = descText;
+        }
         itemDiv.appendChild(description);
 
         // Ensure parent is relative for absolute positioning of author

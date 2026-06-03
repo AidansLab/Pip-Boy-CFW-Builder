@@ -219,162 +219,281 @@ async function startInstallation() {
         await writeCommand('\x10echo(0);\n'); // Turn off echo
         await delay(500);
 
-        log("Checking firmware version...");
-
-        // Clear buffer (important to remove previous noise)
+        // --- Detect device name ---
+        log("Detecting device type...");
         serialDataBuffer = '';
 
-        // Read VERSION variable directly
-        await writeCommand(`\x10if(typeof VERSION!=="undefined") print("V:" + VERSION); else print("V:NONE");\n`);
+        await writeCommand(`\x10print("BOARD:" + (process.env.BOARD || "UNKNOWN"));\n`);
 
-        // Wait for response
-        let version = null;
+        let deviceName = null;
         let attempts = 0;
         const maxAttempts = 30; // 6 seconds total
 
         while (attempts < maxAttempts) {
             await delay(200);
 
-            // Look for our specific tag
-            if (serialDataBuffer.includes("V:")) {
-                const match = serialDataBuffer.match(/V:([0-9\.]+)/);
+            if (serialDataBuffer.includes("BOARD:")) {
+                const match = serialDataBuffer.match(/BOARD:(.+)/);
                 if (match) {
-                    let rawVersion = match[1];
-                    // Clean up version string
-                    rawVersion = rawVersion.replace(/[^0-9\.]/g, '');
-
-                    if (rawVersion && rawVersion !== "NONE") {
-                        // If version has 3 parts (1.29.123), match only major.minor
-                        const parts = rawVersion.split('.');
-                        if (parts.length >= 2) {
-                            version = `${parts[0]}.${parts[1]}`;
-                        }
-                    }
-                    if (version) break;
-                    if (rawVersion === "NONE") break; // explicitly missing
+                    deviceName = match[1].trim().replace(/[\r\n]+/g, '');
+                    if (deviceName && deviceName !== "UNKNOWN") break;
                 }
             }
             attempts++;
         }
 
-        if (!version) {
+        if (!deviceName || deviceName === "UNKNOWN") {
             log(`Raw buffer start: ${serialDataBuffer.substring(0, 50)}...`, 'warn');
-            throw new Error("Could not read VERSION file or file missing. Is the SD card inserted?");
+            throw new Error("Could not detect device type. Is the device connected properly?");
         }
 
-        log(`Detected Firmware Version: ${version}`, "success");
+        log(`Detected device: ${deviceName}`, "success");
 
-        // 3. Matched Firmware?
-        if (!FW_VERSIONS[version]) {
-            throw new Error(`Unsupported firmware version: ${version}. Supported: ${Object.keys(FW_VERSIONS).join(', ')}`);
-        }
-
-        const fwInfo = FW_VERSIONS[version];
-        log(`Target Firmware: ${fwInfo.file}`);
-
-        // 4. Fetch Firmware & Patch
-        log("Downloading base firmware...");
-        const fwUrl = `../Firmware/${fwInfo.file}`;
-        const response = await fetch(fwUrl);
-        if (!response.ok) throw new Error(`Failed to download ${fwUrl}`);
-        let firmwareContent = await response.text();
-
-        log("Loading Camera Module patch...");
-        const cameraPatchScript = document.createElement('script');
-        cameraPatchScript.src = '../Patches/CameraModule.js';
-
-        await new Promise((resolve, reject) => {
-            cameraPatchScript.onload = resolve;
-            cameraPatchScript.onerror = () => reject(new Error("Failed to load CameraModule.js"));
-            document.body.appendChild(cameraPatchScript);
-        });
-
-        if (!window.Patches.CameraModule) throw new Error("CameraModule patch data not found after loading script.");
-
-        // 5. Apply Patch
-        log("Applying Camera Module patch...", "success");
-        firmwareContent = applyPatch(firmwareContent, "CameraModule", window.Patches.CameraModule);
-
-        // Minify
-        log("Optimizing firmware...");
-        if (window.Espruino && Espruino.Plugins && Espruino.Plugins.Minify) {
-            // Config for minification
-            if (Espruino.Config) {
-                Espruino.Config.MINIFICATION_LEVEL = "ESPRIMA";
-                Espruino.Config.MODULE_MINIFICATION_LEVEL = "ESPRIMA";
-                Espruino.Config.MINIFICATION_Mangle = true;
-                Espruino.Config.PRETOKENISE = 2;
-            }
-
-            // Check if preminify exists
-            if (typeof Espruino.Plugins.Minify.preminify === 'function') {
-                firmwareContent = Espruino.Plugins.Minify.preminify(firmwareContent) || firmwareContent;
-                log("Minification complete.");
-            } else {
-                log("Minifier (preminify) not available - skipping optimization.", "warn");
-            }
+        // --- Branch based on device type ---
+        if (deviceName === "SAPLING") {
+            await installPipBoy3000();
+        } else if (deviceName === "PIPBOY") {
+            await installPipBoy();
         } else {
-            log("Espruino Minify plugin not loaded - skipping optimization.", "warn");
+            throw new Error(`Unknown device type: "${deviceName}". Expected "Pip-Boy" or "Pip-Boy 3000".`);
         }
-
-        // Pretokenise
-        if (window.Espruino && Espruino.Plugins && Espruino.Plugins.Pretokenise) {
-            if (typeof Espruino.Plugins.Pretokenise.tokenise === 'function') {
-                const t = Espruino.Plugins.Pretokenise.tokenise(firmwareContent);
-                if (t) {
-                    firmwareContent = t;
-                    log("Tokenization complete.");
-                }
-            }
-        }
-
-        // 6. Upload
-        log("Preparing to write patched firmware to Flash (.bootcde)...");
-
-        await writeCommand('\x10g.clear();g.setFontMonofonto16().setColor(0,0.8,0).setFontAlign(0,0);\n');
-        await delay(100);
-        await writeCommand('\x10g.drawString("Flashing Camera Module...",240,160,true);\n');
-
-        // Erase old .bootcde
-        log("Erasing old firmware...");
-        await writeCommand('\x10try{require("Storage").erase(".bootcde");}catch(e){}\n');
-        await delay(500);
-
-        log(`Writing .bootcde (${firmwareContent.length} bytes) to Flash...`);
-
-        // fs: false for Internal Flash Storage
-        await espruinoSendFile(".bootcde", firmwareContent, {
-            fs: false,
-            progress: (curr, total) => {
-                const percent = Math.round((curr / total) * 100);
-                if (curr % 5 === 0 || curr === total) {
-                    log(`Flashing: ${percent}%`);
-                }
-            }
-        });
-
-        log("Flash write complete.", "success");
-
-        // 7. Reboot
-        log("Rebooting device...");
-        await writeCommand('\x10g.clear();g.drawString("Rebooting...",240,160,true);\n');
-        await delay(500);
-        await writeCommand('\x10E.reboot();\n');
-
-        log("Installation triggered! Device is rebooting.", "success");
-        log("You can now close this page.");
-        installButton.textContent = "INSTALLATION COMPLETE";
-
-        // Cleanup
-        setTimeout(() => {
-            if (Espruino.Core.Serial.isConnected()) Espruino.Core.Serial.close();
-        }, 2000);
 
     } catch (e) {
         log(`CRITICAL ERROR: ${e.message}`, 'error');
         installButton.disabled = false;
         installButton.textContent = "RETRY INSTALLATION";
     }
+}
+
+// --- Pip-Boy 3000 Install: Upload PIPCAM.info and PIPCAM.JS to SD card ---
+async function installPipBoy3000() {
+    log("Pip-Boy 3000 detected — installing Pip-Cam holotape to SD card...");
+
+    // Show status on device screen
+    await writeCommand('\x10g.clear();g.setFontMonofonto16().setColor(0,0.8,0).setFontAlign(0,0);\n');
+    await delay(100);
+    await writeCommand('\x10g.drawString("Installing Pip-Cam...",240,160,true);\n');
+    await delay(100);
+
+    // 1. Fetch and upload PIPCAM.info to APPINFO/PIPCAM.info on SD card
+    log("Downloading PIPCAM.info...");
+    const infoResponse = await fetch('PIPCAM.info');
+    if (!infoResponse.ok) throw new Error("Failed to download PIPCAM.info");
+    const infoText = await infoResponse.text();
+
+    log(`Uploading PIPCAM.info (${infoText.length} bytes) to APPINFO/PIPCAM.info...`);
+    await writeCommand('\x10g.clearRect(0,200,478,240);g.drawString("Uploading PIPCAM.info...",240,220,true);\n');
+    await delay(100);
+
+    await espruinoSendFile("APPINFO/PIPCAM.info", infoText, {
+        fs: true,  // fs:1 = SD card (FAT filesystem)
+        progress: (curr, total) => {
+            const percent = Math.round((curr / total) * 100);
+            log(`PIPCAM.info: ${percent}%`);
+        }
+    });
+
+    log("PIPCAM.info uploaded.", "success");
+
+    // 2. Fetch and upload PIPCAM.JS to HOLO/PIPCAM/PIPCAM.JS on SD card
+    log("Downloading PIPCAM.JS...");
+    const jsResponse = await fetch('PIPCAM.JS');
+    if (!jsResponse.ok) throw new Error("Failed to download PIPCAM.JS");
+    const jsArrayBuffer = await jsResponse.arrayBuffer();
+    const jsBytes = new Uint8Array(jsArrayBuffer);
+
+    // Convert Uint8Array to string for espruinoSendFile
+    let jsData = '';
+    for (let i = 0; i < jsBytes.length; i++) {
+        jsData += String.fromCharCode(jsBytes[i]);
+    }
+
+    log(`Uploading PIPCAM.JS (${jsData.length} bytes) to HOLO/PIPCAM/PIPCAM.JS...`);
+    await writeCommand('\x10g.clearRect(0,200,478,240);g.drawString("Uploading PIPCAM.JS...",240,220,true);\n');
+    await delay(100);
+
+    await espruinoSendFile("HOLO/PIPCAM/PIPCAM.JS", jsData, {
+        fs: true,  // fs:1 = SD card (FAT filesystem)
+        progress: (curr, total) => {
+            const percent = Math.round((curr / total) * 100);
+            if (curr % 5 === 0 || curr === total) {
+                log(`PIPCAM.JS: ${percent}%`);
+            }
+        }
+    });
+
+    log("PIPCAM.JS uploaded.", "success");
+
+    // 3. Reboot
+    log("Rebooting device...");
+    await writeCommand('\x10g.clear();g.drawString("Rebooting...",240,160,true);\n');
+    await delay(500);
+    await writeCommand('\x10E.reboot();\n');
+
+    log("Installation complete! Device is rebooting.", "success");
+    log("You can now close this page.");
+    installButton.textContent = "INSTALLATION COMPLETE";
+
+    // Cleanup
+    setTimeout(() => {
+        if (Espruino.Core.Serial.isConnected()) Espruino.Core.Serial.close();
+    }, 2000);
+}
+
+// --- Original Pip-Boy Install: Patch firmware and flash to .bootcde ---
+async function installPipBoy() {
+    log("Pip-Boy detected — installing Camera Module firmware patch...");
+
+    log("Checking firmware version...");
+
+    // Clear buffer (important to remove previous noise)
+    serialDataBuffer = '';
+
+    // Read VERSION variable directly
+    await writeCommand(`\x10if(typeof VERSION!=="undefined") print("V:" + VERSION); else print("V:NONE");\n`);
+
+    // Wait for response
+    let version = null;
+    let attempts = 0;
+    const maxAttempts = 30; // 6 seconds total
+
+    while (attempts < maxAttempts) {
+        await delay(200);
+
+        // Look for our specific tag
+        if (serialDataBuffer.includes("V:")) {
+            const match = serialDataBuffer.match(/V:([0-9\.]+)/);
+            if (match) {
+                let rawVersion = match[1];
+                // Clean up version string
+                rawVersion = rawVersion.replace(/[^0-9\.]/g, '');
+
+                if (rawVersion && rawVersion !== "NONE") {
+                    // If version has 3 parts (1.29.123), match only major.minor
+                    const parts = rawVersion.split('.');
+                    if (parts.length >= 2) {
+                        version = `${parts[0]}.${parts[1]}`;
+                    }
+                }
+                if (version) break;
+                if (rawVersion === "NONE") break; // explicitly missing
+            }
+        }
+        attempts++;
+    }
+
+    if (!version) {
+        log(`Raw buffer start: ${serialDataBuffer.substring(0, 50)}...`, 'warn');
+        throw new Error("Could not read VERSION file or file missing. Is the SD card inserted?");
+    }
+
+    log(`Detected Firmware Version: ${version}`, "success");
+
+    // 3. Matched Firmware?
+    if (!FW_VERSIONS[version]) {
+        throw new Error(`Unsupported firmware version: ${version}. Supported: ${Object.keys(FW_VERSIONS).join(', ')}`);
+    }
+
+    const fwInfo = FW_VERSIONS[version];
+    log(`Target Firmware: ${fwInfo.file}`);
+
+    // 4. Fetch Firmware & Patch
+    log("Downloading base firmware...");
+    const fwUrl = `../Firmware/${fwInfo.file}`;
+    const response = await fetch(fwUrl);
+    if (!response.ok) throw new Error(`Failed to download ${fwUrl}`);
+    let firmwareContent = await response.text();
+
+    log("Loading Camera Module patch...");
+    const cameraPatchScript = document.createElement('script');
+    cameraPatchScript.src = '../Patches/CameraModule.js';
+
+    await new Promise((resolve, reject) => {
+        cameraPatchScript.onload = resolve;
+        cameraPatchScript.onerror = () => reject(new Error("Failed to load CameraModule.js"));
+        document.body.appendChild(cameraPatchScript);
+    });
+
+    if (!window.Patches.CameraModule) throw new Error("CameraModule patch data not found after loading script.");
+
+    // 5. Apply Patch
+    log("Applying Camera Module patch...", "success");
+    firmwareContent = applyPatch(firmwareContent, "CameraModule", window.Patches.CameraModule);
+
+    // Minify
+    log("Optimizing firmware...");
+    if (window.Espruino && Espruino.Plugins && Espruino.Plugins.Minify) {
+        // Config for minification
+        if (Espruino.Config) {
+            Espruino.Config.MINIFICATION_LEVEL = "ESPRIMA";
+            Espruino.Config.MODULE_MINIFICATION_LEVEL = "ESPRIMA";
+            Espruino.Config.MINIFICATION_Mangle = true;
+            Espruino.Config.PRETOKENISE = 2;
+        }
+
+        // Check if preminify exists
+        if (typeof Espruino.Plugins.Minify.preminify === 'function') {
+            firmwareContent = Espruino.Plugins.Minify.preminify(firmwareContent) || firmwareContent;
+            log("Minification complete.");
+        } else {
+            log("Minifier (preminify) not available - skipping optimization.", "warn");
+        }
+    } else {
+        log("Espruino Minify plugin not loaded - skipping optimization.", "warn");
+    }
+
+    // Pretokenise
+    if (window.Espruino && Espruino.Plugins && Espruino.Plugins.Pretokenise) {
+        if (typeof Espruino.Plugins.Pretokenise.tokenise === 'function') {
+            const t = Espruino.Plugins.Pretokenise.tokenise(firmwareContent);
+            if (t) {
+                firmwareContent = t;
+                log("Tokenization complete.");
+            }
+        }
+    }
+
+    // 6. Upload
+    log("Preparing to write patched firmware to Flash (.bootcde)...");
+
+    await writeCommand('\x10g.clear();g.setFontMonofonto16().setColor(0,0.8,0).setFontAlign(0,0);\n');
+    await delay(100);
+    await writeCommand('\x10g.drawString("Flashing Camera Module...",240,160,true);\n');
+
+    // Erase old .bootcde
+    log("Erasing old firmware...");
+    await writeCommand('\x10try{require("Storage").erase(".bootcde");}catch(e){}\n');
+    await delay(500);
+
+    log(`Writing .bootcde (${firmwareContent.length} bytes) to Flash...`);
+
+    // fs: false for Internal Flash Storage
+    await espruinoSendFile(".bootcde", firmwareContent, {
+        fs: false,
+        progress: (curr, total) => {
+            const percent = Math.round((curr / total) * 100);
+            if (curr % 5 === 0 || curr === total) {
+                log(`Flashing: ${percent}%`);
+            }
+        }
+    });
+
+    log("Flash write complete.", "success");
+
+    // 7. Reboot
+    log("Rebooting device...");
+    await writeCommand('\x10g.clear();g.drawString("Rebooting...",240,160,true);\n');
+    await delay(500);
+    await writeCommand('\x10E.reboot();\n');
+
+    log("Installation triggered! Device is rebooting.", "success");
+    log("You can now close this page.");
+    installButton.textContent = "INSTALLATION COMPLETE";
+
+    // Cleanup
+    setTimeout(() => {
+        if (Espruino.Core.Serial.isConnected()) Espruino.Core.Serial.close();
+    }, 2000);
 }
 
 // --- Patching Logic (Simplified from patcher.js) ---

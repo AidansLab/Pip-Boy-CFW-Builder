@@ -1,0 +1,7 @@
+{
+    "id": "pipcam",
+    "name": "Pip-Cam Holotape",
+    "version": "1.0",
+    "src": "HOLO/PIPCAM/PIPCAM.JS",
+    "icon": "APPINFO/HOLO.IMG"
+}
