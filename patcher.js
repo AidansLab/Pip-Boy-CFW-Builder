@@ -678,10 +678,22 @@ document.addEventListener('DOMContentLoaded', () => {
                 // Process Find/Replace Array
                 if (patchData.find && Array.isArray(patchData.find)) {
                     patchData.find.forEach(job => {
-                        if (!job || typeof job.string !== 'string') return;
+                        if (!job || !job.string) return;
+
+                        let stringsToFind = [];
+                        if (typeof job.string === 'string') {
+                            if (job.string.includes(' || ')) {
+                                stringsToFind = job.string.split(' || ');
+                            } else {
+                                stringsToFind = [job.string];
+                            }
+                        } else if (Array.isArray(job.string)) {
+                            stringsToFind = job.string;
+                        } else {
+                            return;
+                        }
 
                         let replacementString = '';
-                        const stringToFind = job.string;
 
                         if (job.useInput === true) {
                             const inputElement = document.getElementById(`patch-input-${patchKey}`);
@@ -701,8 +713,11 @@ document.addEventListener('DOMContentLoaded', () => {
                             return;
                         }
 
-                        const findRegex = new RegExp(escapeRegExp(stringToFind), 'g');
-                        patchedContent = patchedContent.replace(findRegex, replacementString);
+                        stringsToFind.forEach(stringToFind => {
+                            if (typeof stringToFind !== 'string') return;
+                            const findRegex = new RegExp(escapeRegExp(stringToFind), 'g');
+                            patchedContent = patchedContent.replace(findRegex, replacementString);
+                        });
                     });
                 }
             });
