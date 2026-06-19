@@ -51,6 +51,12 @@ let submenuRadio = () =>
 	// Uses random or sequential mode based on settings.radio.random
 	function playFromStationFolder(folderName) {
 		return new Promise((resolve, reject) => {
+			// Clear any pending timeout first
+			if (Pip.radioTimeout) {
+				clearTimeout(Pip.radioTimeout);
+				Pip.radioTimeout = null;
+			}
+
 			// Prevent concurrent calls - if already starting a track, ignore this call
 			if (Pip.radioStarting) {
 				return resolve(false);
@@ -76,18 +82,13 @@ let submenuRadio = () =>
 			Pip.removeAllListeners("audioStopped");
 
 			// --- FIX: Add delay to prevent race condition with audioStopped event ---
-			setTimeout(() => {
+			Pip.radioTimeout = setTimeout(() => {
+				Pip.radioTimeout = null;
 				try {
 					// Check if station is still active after delay
 					if (Pip.customRadioState.activeStation !== folderName) {
 						Pip.radioStarting = false;
 						return resolve(false);
-					}
-
-					let stationFiles = fs.readdirSync("RADIO/" + folderName).filter(f => f.toUpperCase().endsWith("WAV") && !f.startsWith("."));
-					if (!stationFiles.length) {
-						Pip.radioStarting = false;
-						return reject("No WAV files in /RADIO/" + folderName);
 					}
 
 					let trackToPlay;
@@ -96,6 +97,11 @@ let submenuRadio = () =>
 						// Use a pool of unplayed songs and track played songs
 						if (!Pip.randomPool || Pip.randomStation !== folderName) {
 							// Build new random pool for this station
+							let stationFiles = fs.readdirSync("RADIO/" + folderName).filter(f => f.toUpperCase().endsWith("WAV") && !f.startsWith("."));
+							if (!stationFiles.length) {
+								Pip.radioStarting = false;
+								return reject("No WAV files in /RADIO/" + folderName);
+							}
 							Pip.randomPool = stationFiles.slice();
 							Pip.playedSongs = [];
 							Pip.randomStation = folderName;
@@ -122,6 +128,11 @@ let submenuRadio = () =>
 						// Use a shared array that is reused across all stations
 						if (!Pip.sequentialPlaylist || Pip.sequentialStation !== folderName) {
 							// Build new sorted playlist for this station
+							let stationFiles = fs.readdirSync("RADIO/" + folderName).filter(f => f.toUpperCase().endsWith("WAV") && !f.startsWith("."));
+							if (!stationFiles.length) {
+								Pip.radioStarting = false;
+								return reject("No WAV files in /RADIO/" + folderName);
+							}
 							Pip.sequentialPlaylist = stationFiles.slice().sort();
 							console.log(Pip.sequentialPlaylist);
 							Pip.sequentialIndex = 0;
@@ -312,12 +323,10 @@ j();
 
 // --- Modified Music Logic Interval ---
 let h = setInterval(() => {
-	if (Pip.customRadioState.activeStation !== "NONE" && Pip.customRadioState.activeStation !== "KPSS" && !Pip.streamPlaying() && !Pip.radioStarting) {
+	if (Pip.customRadioState.activeStation !== "NONE" && Pip.customRadioState.activeStation !== "KPSS" && !Pip.streamPlaying() && !Pip.radioClipPlaying && !Pip.radioStarting) {
 		// Custom station logic
 		playFromStationFolder(Pip.customRadioState.activeStation).catch(err => {
 			log("Station autoplay error: " + err);
-			// Stop trying if folder is bad
-			Pip.customRadioState.activeStation = "NONE";
 		});
 	} else if (Pip.radioKPSS && !Pip.streamPlaying()) {
 		// KPSS logic (original)
@@ -346,6 +355,10 @@ function i(a) {
 	// New Custom Station logic: Knob 2 skips tracks
 	if (Pip.customRadioState.activeStation !== "NONE" && Pip.customRadioState.activeStation !== "KPSS") {
 		// Clear any pending state to prevent race conditions
+		if (Pip.radioTimeout) {
+			clearTimeout(Pip.radioTimeout);
+			Pip.radioTimeout = null;
+		}
 		Pip.removeAllListeners("audioStopped");
 		Pip.radioStarting = false;
 		Pip.radioClipPlaying = false;
@@ -386,6 +399,10 @@ function i(a) {
 		Pip.radioKPSS = false;
 		Pip.radioCustom = false;
 		Pip.customRadioState.activeStation = "NONE"; // Clear custom station state
+		if (Pip.radioTimeout) {
+			clearTimeout(Pip.radioTimeout);
+			Pip.radioTimeout = null;
+		}
 		// Clear sequential playlist when leaving radio menu
 		Pip.sequentialPlaylist = null;
 		Pip.sequentialIndex = 0;
