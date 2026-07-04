@@ -275,6 +275,16 @@ async function installPipBoy3000() {
     await writeCommand('\x10g.drawString("Installing Pip-Cam...",240,160,true);\n');
     await delay(100);
 
+    // Ensure target directories exist before uploading (Espruino's SD FS
+    // can't open a file for write if its parent directory is missing)
+    log("Ensuring target directories exist...");
+    await writeCommand(`\x10try{require('fs').mkdir("APPINFO");}catch(e){}\n`);
+    await delay(100);
+    await writeCommand(`\x10try{require('fs').mkdir("HOLO");}catch(e){}\n`);
+    await delay(100);
+    await writeCommand(`\x10try{require('fs').mkdir("HOLO/PIPCAM");}catch(e){}\n`);
+    await delay(100);
+
     // 1. Fetch and upload PIPCAM.info to APPINFO/PIPCAM.info on SD card
     log("Downloading PIPCAM.info...");
     const infoResponse = await fetch('PIPCAM.info');
