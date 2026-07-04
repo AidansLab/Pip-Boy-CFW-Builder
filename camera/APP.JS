@@ -10,8 +10,7 @@
     h.clear();
     try { require('fs').mkdir('IMGS'); } catch (e) { }
 
-    let contrast = 0;
-    let brightness = 0;
+    const gamma = 0.7; // <1 boosts midtone brightness of rendered photos
 
     let imageArray = null;
 
@@ -29,11 +28,8 @@
     let deleteSelect = false;
     let appMode = 0; // 0 = Take Picture, 1 = View Picture
 
-    let picStart = null;
-
     let busy = 0; //State is either 0 not busy, 1 busy, 2 managing pics.
 
-    let palBuffer = new Uint16Array(16);
     let cR = 0, cG = 1, cB = 0; // Default to Green if settings are missing
 
     if (Pip.settings.theme) {
@@ -43,23 +39,11 @@
         cB = (Pip.settings.theme & 0xFF) / 255;
     }
 
-    // Populate the 16-color palette
-    for (let i = 0; i < 16; i++) {
-        // Map index 0-15 to 0.0-1.0 intensity
-        let intensity = i / 15;
-
-        // Create color using the system theme ratios
-        palBuffer[i] = h.toColor(intensity * cR, intensity * cG, intensity * cB);
-    }
-
-    // Assign the generated palette to sysPalette
-    const sysPalette = palBuffer;
-
     function drawPicture() {
         h.clearRect(0, 51, 480, 290);
 
         if (imageArray.length == 0) {
-            h.setFontMonofonto18().setFontAlign(0, 0).drawString("NO IMAGES", h.getWidth() / 2, h.getHeight() / 2);
+            h.setFontMonofonto18().setFontAlign(0, 0).drawString("NO IMAGES", h.getWidth() / 2, h.getHeight() / 2).setColor(3);
             busy = 0;
             return;
         }
@@ -74,7 +58,7 @@
         }
 
         if (fs.statSync("IMGS/" + imageArray[fileIndex]).size < 20000) {
-            h.setFontMonofonto18().setFontAlign(0, 0).drawString("Image corrupt, try reconverting", h.getWidth() / 2, h.getHeight() / 2);
+            h.setFontMonofonto18().setFontAlign(0, 0).drawString("Image corrupt, try reconverting", h.getWidth() / 2, h.getHeight() / 2).setColor(3);
             f.close();
             busy = 0;
             return;
@@ -92,9 +76,6 @@
         // Generate a proper RGB565 grayscale palette for h.drawImage to map to system colors
         const palSize = 1 << bpp;
         let sysPalette = new Uint16Array(palSize);
-
-        // Apply a gamma curve to fix 3000a darkness
-        const gamma = 0.42;
 
         for (let i = 0; i < palSize; i++) {
             // Apply gamma curve to boost brightness/detail
@@ -189,12 +170,12 @@
 
         if (fs.getFree().freeSectors - 92 < 3) {
             h.clearRect(0, 51, 480, 290);
-            h.setFontMonofonto18().setFontAlign(0, 0).drawString("NOT ENOUGH FREE SPACE ON SD", h.getWidth() / 2, h.getHeight() / 2);
+            h.setFontMonofonto18().setFontAlign(0, 0).drawString("NOT ENOUGH FREE SPACE ON SD", h.getWidth() / 2, h.getHeight() / 2).setColor(3);
             return;
         } else
             if (process.memory(false).free - 6 < 600) {
                 h.clearRect(0, 51, 480, 290);
-                h.setFontMonofonto18().setFontAlign(0, 0).drawString("NOT ENOUGH MEMORY", h.getWidth() / 2, h.getHeight() / 2);
+                h.setFontMonofonto18().setFontAlign(0, 0).drawString("NOT ENOUGH MEMORY", h.getWidth() / 2, h.getHeight() / 2).setColor(3);
                 return;
             }
 
@@ -299,13 +280,13 @@
     function CBupdate(knob, dir) {
         if (knob == 0) // Brightness
         {
-            h.setFontMonofonto28().setFontAlign(-1, -1).setColor(13);
+            h.setFontMonofonto28().setFontAlign(-1, -1).setColor(3);
             h.clearRect(48, 5, 110, 45);
             Pip.settings.camera.brightness += dir;
             h.drawString(Pip.settings.camera.brightness, 48, 10);
         } else if (knob == 1) // Contrast
         {
-            h.setFontMonofonto28().setFontAlign(1, -1).setColor(13);
+            h.setFontMonofonto28().setFontAlign(1, -1).setColor(3);
             h.clearRect(370, 5, 432, 45);
             Pip.settings.camera.contrast += -dir;
             h.drawString(Pip.settings.camera.contrast, 432, 10);
@@ -314,21 +295,25 @@
 
     function DisplaySetup() {
         h.clear();
-        h.setFontMonofonto36().setFontAlign(0, -1).setColor(13);
-        h.drawString("PIP-CAM", h.getWidth() / 2, 0);
 
         if (appMode == 0) {
-            h.setFontMonofonto28().setFontAlign(-1, -1).setColor(13);
+            h.setFontMonofonto36().setFontAlign(0, -1).setColor(3);
+            h.drawString("PIP-CAM", h.getWidth() / 2, 0);
+            h.setFontMonofonto28().setFontAlign(-1, -1).setColor(3);
             h.drawString("B:" + Pip.settings.camera.brightness, 20, 10);
-            h.setFontMonofonto28().setFontAlign(1, -1).setColor(13);
+            h.setFontMonofonto28().setFontAlign(1, -1).setColor(3);
             h.drawString(Pip.settings.camera.contrast + ":C", 460, 10);
+        }
+        else if (appMode == 1) {
+            h.setFontMonofonto36().setFontAlign(0, -1).setColor(3);
+            h.drawString("PIP-CAM PHOTOS", h.getWidth() / 2, 0);
         }
 
         drawFooter();
     }
 
     function drawFooter() {
-        h.setFontMonofonto18().setFontAlign(0, -1).setColor(9);
+        h.setFontMonofonto18().setFontAlign(0, -1).setColor(2);
         h.drawString("Press Any Button to Exit", h.getWidth() / 2, 290);
         h.setFontAlign(1, -1);
         h.clearRect(h.getWidth() - 20, 290, h.getWidth() - 70, 310)
